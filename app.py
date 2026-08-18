@@ -3,30 +3,23 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import ta
-
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-
 # =========================================================
-# 🚀 EGX AI PRO MAX V6
-# PRODUCTION / LIQUIDITY / RS / SECTOR / BACKTEST
+# ⚙️ إعداد الصفحة
 # =========================================================
 
 st.set_page_config(
-    page_title="EGX AI PRO MAX V6",
+    page_title="EGX AI PRO MAX v6 - عربي",
     page_icon="📈",
     layout="wide"
 )
 
-st.title("🚀 EGX AI PRO MAX V6")
-st.caption(
-    "EGX Scanner • Multi-Timeframe • Liquidity • Relative Strength • "
-    "Sector Ranking • Risk/Reward • Backtest"
-)
-
+st.title("🚀 EGX AI PRO MAX v6")
+st.caption("📊 فحص الأسهم المصرية • تحليل متعدد الفترات • تقييم ذكي • محرك بيانات سريع")
 
 # =========================================================
-# 📌 UNIVERSE
+# 📌 قائمة الأسهم
 # =========================================================
 
 EGX100 = [
@@ -43,191 +36,95 @@ EGX100 = [
     "RAYA.CA", "VERT.CA", "EGAL.CA", "ECAP.CA", "MPRC.CA",
     "NCCW.CA", "SCEM.CA", "ARAB.CA", "GDWA.CA", "ELEC.CA",
     "IRON.CA", "ATQA.CA", "EGCH.CA", "KIMA.CA", "ALCN.CA",
-    "MPCO.CA", "ELSH.CA", "MEPA.CA", "ODIN.CA",
-    "EGAS.CA", "RACC.CA", "PRCL.CA", "BINV.CA",
+    "MPCO.CA", "ELSH.CA", "NCCW.CA", "MEPA.CA", "ODIN.CA",
+    "EGAS.CA", "MENA.CA", "RACC.CA", "PRCL.CA", "BINV.CA",
     "EDBM.CA", "MCQE.CA", "MOIL.CA", "NIPH.CA", "ISPH.CA",
-    "DICE.CA", "IDHC.CA", "UNIT.CA", "PHAR.CA",
+    "DICE.CA", "BINV.CA", "IDHC.CA", "UNIT.CA", "PHAR.CA",
     "TRTO.CA", "ALRA.CA", "FARE.CA", "ICFC.CA", "MISr.CA",
-    "MOBI.CA", "ELKA.CA", "NILE.CA", "ATLC.CA",
-    "COSG.CA", "MEDA.CA", "AMPI.CA", "COPR.CA"
+    "MOBI.CA", "RACC.CA", "ELKA.CA", "NILE.CA", "ATLC.CA",
+    "COSG.CA", "MEDA.CA", "ELSH.CA", "AMPI.CA", "COPR.CA"
 ]
 
+# إزالة التكرارات
 EGX100 = list(dict.fromkeys(EGX100))
 
+TOTAL_STOCKS = len(EGX100)
 
 # =========================================================
-# 🏭 SECTORS
-# =========================================================
-
-SECTORS = {
-
-    # Banks
-    "COMI.CA": "Banks",
-    "HRHO.CA": "Financial Services",
-    "ADIB.CA": "Banks",
-    "SAUD.CA": "Banks",
-    "QNBA.CA": "Banks",
-    "CIEB.CA": "Banks",
-    "FAIT.CA": "Banks",
-    "CANAL.CA": "Banks",
-    "EXPA.CA": "Banks",
-    "ARCC.CA": "Financial Services",
-    "CICH.CA": "Financial Services",
-    "BINV.CA": "Financial Services",
-    "EDBM.CA": "Banks",
-
-    # Real Estate
-    "PHDC.CA": "Real Estate",
-    "TMGH.CA": "Real Estate",
-    "MNHD.CA": "Real Estate",
-    "EMFD.CA": "Real Estate",
-    "OCDI.CA": "Real Estate",
-    "ORHD.CA": "Real Estate",
-    "MASR.CA": "Real Estate",
-    "AMER.CA": "Real Estate",
-    "TALM.CA": "Real Estate",
-    "MENA.CA": "Real Estate",
-    "ODIN.CA": "Real Estate",
-    "RACC.CA": "Real Estate",
-
-    # Petrochemicals / Chemicals
-    "MFPC.CA": "Chemicals",
-    "AMOC.CA": "Petrochemicals",
-    "SKPC.CA": "Petrochemicals",
-    "ABUK.CA": "Chemicals",
-    "EGAS.CA": "Energy",
-    "TAQA.CA": "Energy",
-    "EGCH.CA": "Chemicals",
-    "KIMA.CA": "Chemicals",
-    "ECAP.CA": "Chemicals",
-    "MICH.CA": "Chemicals",
-
-    # Industrial
-    "SWDY.CA": "Industrials",
-    "ESRS.CA": "Steel",
-    "IRON.CA": "Steel",
-    "ORAS.CA": "Industrials",
-    "ALCN.CA": "Industrials",
-    "NCCW.CA": "Industrials",
-    "SCEM.CA": "Industrials",
-    "ATQA.CA": "Industrials",
-    "MPCO.CA": "Industrials",
-    "ELSH.CA": "Industrials",
-
-    # Telecom / Technology
-    "ETEL.CA": "Telecom",
-    "FWRY.CA": "Technology",
-    "RAYA.CA": "Technology",
-    "MOBI.CA": "Technology",
-    "IDHC.CA": "Healthcare Technology",
-
-    # Food
-    "EAST.CA": "Food & Tobacco",
-    "EFID.CA": "Food",
-    "JUFO.CA": "Food",
-    "DOMT.CA": "Food",
-    "POUL.CA": "Food",
-    "OLFI.CA": "Food",
-    "SUGR.CA": "Food",
-    "ISMA.CA": "Food",
-    "DICE.CA": "Consumer",
-
-    # Healthcare
-    "PHAR.CA": "Healthcare",
-    "ISPH.CA": "Healthcare",
-    "NIPH.CA": "Healthcare",
-    "MEPA.CA": "Healthcare",
-
-    # Other / Consumer
-    "HELI.CA": "Real Estate",
-    "ORWE.CA": "Consumer",
-    "AUTO.CA": "Automotive",
-    "MENA.CA": "Real Estate",
-    "VERT.CA": "Financial Services",
-    "DAPH.CA": "Consumer",
-    "PRCL.CA": "Financial Services",
-    "UNIT.CA": "Financial Services",
-    "TRTO.CA": "Consumer",
-    "ALRA.CA": "Consumer",
-    "FARE.CA": "Financial Services",
-    "ICFC.CA": "Financial Services",
-    "COSG.CA": "Consumer",
-    "MEDA.CA": "Consumer",
-    "AMPI.CA": "Industrials",
-    "COPR.CA": "Industrials",
-}
-
-
-# =========================================================
-# 🎛️ SETTINGS
+# 🎛️ إعدادات الفحص
 # =========================================================
 
 st.sidebar.header("⚙️ إعدادات الفحص")
 
 period_daily = st.sidebar.selectbox(
-    "الفترة اليومية",
-    ["1y", "2y", "3y", "5y"],
-    index=2
+    "📅 فترة البيانات اليومية",
+    ["3mo", "6mo", "1y", "2y", "3y", "5y"],
+    index=1
 )
 
 period_weekly = st.sidebar.selectbox(
-    "الفترة الأسبوعية",
-    ["2y", "3y", "5y", "10y"],
+    "📅 فترة البيانات الأسبوعية",
+    ["1y", "2y", "3y", "5y"],
     index=1
 )
 
 period_monthly = st.sidebar.selectbox(
-    "الفترة الشهرية",
+    "📅 فترة البيانات الشهرية",
     ["3y", "5y", "10y", "max"],
     index=1
 )
 
 max_workers = st.sidebar.slider(
-    "⚡ الاتصالات المتوازية",
-    2,
-    16,
-    8
+    "⚡ عدد الاتصالات المتوازية",
+    min_value=2,
+    max_value=16,
+    value=8,
+    step=1
 )
 
 top_n = st.sidebar.slider(
-    "🏆 أفضل عدد أسهم",
-    5,
-    50,
-    20,
-    5
-)
-
-min_liquidity = st.sidebar.number_input(
-    "💧 الحد الأدنى لمتوسط قيمة التداول اليومية EGP",
-    min_value=0.0,
-    value=5_000_000.0,
-    step=500_000.0
-)
-
-backtest_horizon = st.sidebar.slider(
-    "🧪 Backtest Horizon",
-    5,
-    60,
-    20
-)
-
-min_score = st.sidebar.slider(
-    "🎯 أقل Score للفرص القوية",
-    50,
-    90,
-    70
+    "🏆 عدد أفضل الأسهم",
+    min_value=5,
+    max_value=100,
+    value=20,
+    step=5
 )
 
 st.sidebar.markdown("---")
 
 st.sidebar.metric(
-    "📊 الكون المطلوب",
-    len(EGX100)
+    "📊 عدد الأسهم للفحص",
+    TOTAL_STOCKS
 )
 
+st.sidebar.markdown("---")
+
+st.sidebar.info(
+    """
+    📌 النظام يقوم بفحص:
+
+    • الاتجاه اليومي
+    • الاتجاه الأسبوعي
+    • الاتجاه الشهري
+    • EMA20
+    • EMA50
+    • EMA200
+    • RSI
+    • MACD
+    • Volume
+    • OBV
+    • ATR
+    • ADX
+    • الدعم والمقاومة
+    • التقييم النهائي
+    • الدخول
+    • وقف الخسارة
+    • 3 أهداف
+    """
+)
 
 # =========================================================
-# 📥 DATA DOWNLOAD
+# 📊 تحميل البيانات
 # =========================================================
 
 @st.cache_data(
@@ -241,7 +138,7 @@ def load_data(symbols, period, interval):
 
     try:
 
-        return yf.download(
+        data = yf.download(
             tickers=symbols,
             period=period,
             interval=interval,
@@ -251,12 +148,15 @@ def load_data(symbols, period, interval):
             progress=False
         )
 
+        return data
+
     except Exception:
-        return pd.DataFrame()
+
+        return None
 
 
 # =========================================================
-# 📊 SINGLE SYMBOL EXTRACTION
+# 🔍 استخراج بيانات السهم
 # =========================================================
 
 def extract_symbol_data(data, symbol):
@@ -266,14 +166,15 @@ def extract_symbol_data(data, symbol):
         if data is None or data.empty:
             return pd.DataFrame()
 
+        # MultiIndex
         if isinstance(data.columns, pd.MultiIndex):
 
-            levels = data.columns.get_level_values
+            if symbol in data.columns.get_level_values(0):
 
-            if symbol in levels(0):
                 df = data[symbol].copy()
 
-            elif symbol in levels(1):
+            elif symbol in data.columns.get_level_values(1):
+
                 df = data.xs(
                     symbol,
                     axis=1,
@@ -281,6 +182,7 @@ def extract_symbol_data(data, symbol):
                 ).copy()
 
             else:
+
                 return pd.DataFrame()
 
         else:
@@ -295,13 +197,15 @@ def extract_symbol_data(data, symbol):
             "Volume"
         ]
 
-        if not all(
-            c in df.columns
-            for c in required
-        ):
+        available = [
+            c for c in required
+            if c in df.columns
+        ]
+
+        if len(available) < 5:
             return pd.DataFrame()
 
-        df = df[required].copy()
+        df = df[available].copy()
 
         df = df.replace(
             [np.inf, -np.inf],
@@ -317,11 +221,12 @@ def extract_symbol_data(data, symbol):
         return df
 
     except Exception:
+
         return pd.DataFrame()
 
 
 # =========================================================
-# 📈 INDICATORS
+# 📈 المؤشرات الفنية
 # =========================================================
 
 def add_indicators(df):
@@ -334,11 +239,11 @@ def add_indicators(df):
     close = df["Close"]
     high = df["High"]
     low = df["Low"]
-    volume = df["Volume"]
+    vol = df["Volume"]
 
-    # -------------------------
+    # -----------------------------------------------------
     # EMA
-    # -------------------------
+    # -----------------------------------------------------
 
     df["ema20"] = close.ewm(
         span=20,
@@ -355,358 +260,192 @@ def add_indicators(df):
         adjust=False
     ).mean()
 
-    # -------------------------
+    # -----------------------------------------------------
     # RSI
-    # -------------------------
+    # -----------------------------------------------------
 
     df["rsi"] = ta.momentum.RSIIndicator(
-        close,
+        close=close,
         window=14
     ).rsi()
 
-    # -------------------------
+    # -----------------------------------------------------
     # MACD
-    # -------------------------
+    # -----------------------------------------------------
 
-    macd = ta.trend.MACD(
-        close,
+    macd_obj = ta.trend.MACD(
+        close=close,
         window_slow=26,
         window_fast=12,
         window_sign=9
     )
 
-    df["macd"] = macd.macd()
+    df["macd"] = macd_obj.macd()
 
     df["macd_signal"] = (
-        macd.macd_signal()
+        macd_obj.macd_signal()
     )
 
     df["macd_hist"] = (
-        macd.macd_diff()
+        macd_obj.macd_diff()
     )
 
-    # -------------------------
-    # ATR
-    # -------------------------
-
-    df["atr"] = ta.volatility.AverageTrueRange(
-        high,
-        low,
-        close,
-        window=14
-    ).average_true_range()
-
-    # -------------------------
-    # ADX
-    # -------------------------
-
-    df["adx"] = ta.trend.ADXIndicator(
-        high,
-        low,
-        close,
-        window=14
-    ).adx()
-
-    # -------------------------
+    # -----------------------------------------------------
     # Volume
-    # -------------------------
+    # -----------------------------------------------------
 
-    df["vol_ma20"] = (
-        volume.rolling(20).mean()
-    )
+    df["vol_ma"] = vol.rolling(
+        20
+    ).mean()
 
-    df["volume_ratio"] = (
-        volume /
-        (df["vol_ma20"] + 1e-9)
-    )
+    # -----------------------------------------------------
+    # Support / Resistance
+    # -----------------------------------------------------
 
-    # -------------------------
-    # Traded Value
-    # -------------------------
+    df["support"] = low.rolling(
+        20
+    ).min()
 
-    df["traded_value"] = (
-        close * volume
-    )
+    df["resistance"] = high.rolling(
+        20
+    ).max()
 
-    df["avg_traded_value"] = (
-        df["traded_value"]
-        .rolling(20)
-        .mean()
-    )
-
-    # -------------------------
+    # -----------------------------------------------------
     # OBV
-    # -------------------------
+    # -----------------------------------------------------
 
     try:
 
         df["obv"] = (
             ta.volume
             .OnBalanceVolumeIndicator(
-                close,
-                volume
+                close=close,
+                volume=vol
             )
             .on_balance_volume()
-        )
-
-        df["obv_ma20"] = (
-            df["obv"]
-            .rolling(20)
-            .mean()
         )
 
     except Exception:
 
         df["obv"] = np.nan
-        df["obv_ma20"] = np.nan
-
-    # -------------------------
-    # Money Flow
-    # -------------------------
-
-    try:
-
-        df["mfi"] = (
-            ta.volume
-            .MoneyFlowIndex(
-                high,
-                low,
-                close,
-                volume,
-                window=14
-            )
-        )
-
-    except Exception:
-
-        df["mfi"] = np.nan
-
-    # -------------------------
-    # Support / Resistance
-    # -------------------------
-
-    df["support20"] = (
-        low.rolling(20).min()
-    )
-
-    df["resistance20"] = (
-        high.rolling(20).max()
-    )
-
-    df["support60"] = (
-        low.rolling(60).min()
-    )
-
-    df["resistance60"] = (
-        high.rolling(60).max()
-    )
-
-    # -------------------------
-    # Returns
-    # -------------------------
-
-    df["return_20"] = (
-        close.pct_change(20)
-    )
-
-    df["return_60"] = (
-        close.pct_change(60)
-    )
 
     return df
 
 
 # =========================================================
-# 💧 LIQUIDITY SCORE
+# 📊 ATR
 # =========================================================
 
-def liquidity_score(last):
+def atr(df, period=14):
 
-    avg_value = float(
-        last.get(
-            "avg_traded_value",
-            0
-        )
+    high = df["High"]
+    low = df["Low"]
+    close = df["Close"]
+
+    tr = pd.concat(
+        [
+            high - low,
+            (high - close.shift()).abs(),
+            (low - close.shift()).abs()
+        ],
+        axis=1
+    ).max(axis=1)
+
+    return tr.ewm(
+        alpha=1 / period,
+        adjust=False
+    ).mean()
+
+
+# =========================================================
+# 📊 ADX
+# =========================================================
+
+def adx(df, period=14):
+
+    high = df["High"]
+    low = df["Low"]
+    close = df["Close"]
+
+    plus_dm_raw = high.diff()
+
+    minus_dm_raw = -low.diff()
+
+    plus_dm = np.where(
+        (plus_dm_raw > minus_dm_raw) &
+        (plus_dm_raw > 0),
+        plus_dm_raw,
+        0.0
     )
 
-    volume_ratio = float(
-        last.get(
-            "volume_ratio",
-            0
-        )
+    minus_dm = np.where(
+        (minus_dm_raw > plus_dm_raw) &
+        (minus_dm_raw > 0),
+        minus_dm_raw,
+        0.0
     )
 
-    score = 0
+    tr = pd.concat(
+        [
+            high - low,
+            (high - close.shift()).abs(),
+            (low - close.shift()).abs()
+        ],
+        axis=1
+    ).max(axis=1)
 
-    if avg_value >= 100_000_000:
-        score += 70
+    atr_val = tr.ewm(
+        alpha=1 / period,
+        adjust=False
+    ).mean()
 
-    elif avg_value >= 50_000_000:
-        score += 60
-
-    elif avg_value >= 20_000_000:
-        score += 50
-
-    elif avg_value >= 10_000_000:
-        score += 40
-
-    elif avg_value >= 5_000_000:
-        score += 30
-
-    elif avg_value >= 1_000_000:
-        score += 15
-
-    if volume_ratio >= 2:
-        score += 20
-
-    elif volume_ratio >= 1.5:
-        score += 15
-
-    elif volume_ratio >= 1:
-        score += 10
-
-    return min(
-        100,
-        score
+    plus_di = (
+        100 *
+        pd.Series(
+            plus_dm,
+            index=df.index
+        ).ewm(
+            alpha=1 / period,
+            adjust=False
+        ).mean()
+        /
+        (atr_val + 1e-9)
     )
 
+    minus_di = (
+        100 *
+        pd.Series(
+            minus_dm,
+            index=df.index
+        ).ewm(
+            alpha=1 / period,
+            adjust=False
+        ).mean()
+        /
+        (atr_val + 1e-9)
+    )
 
-# =========================================================
-# 📈 RELATIVE STRENGTH
-# =========================================================
-
-def calculate_relative_strength(
-    stock_df,
-    benchmark_df
-):
-
-    try:
-
-        if stock_df.empty:
-            return 50, 0
-
-        if benchmark_df.empty:
-            return 50, 0
-
-        s = stock_df["Close"].copy()
-        b = benchmark_df["Close"].copy()
-
-        combined = pd.concat(
-            [s, b],
-            axis=1,
-            join="inner"
+    dx = (
+        abs(
+            plus_di -
+            minus_di
         )
-
-        combined.columns = [
-            "stock",
-            "benchmark"
-        ]
-
-        combined = combined.dropna()
-
-        if len(combined) < 30:
-            return 50, 0
-
-        stock_return = (
-            combined["stock"].iloc[-1] /
-            combined["stock"].iloc[-21] -
-            1
+        /
+        (
+            plus_di +
+            minus_di +
+            1e-9
         )
+    ) * 100
 
-        bench_return = (
-            combined["benchmark"].iloc[-1] /
-            combined["benchmark"].iloc[-21] -
-            1
-        )
-
-        rs = (
-            stock_return -
-            bench_return
-        )
-
-        score = 50 + (
-            rs * 250
-        )
-
-        score = max(
-            0,
-            min(100, score)
-        )
-
-        return score, rs * 100
-
-    except Exception:
-        return 50, 0
+    return dx.ewm(
+        alpha=1 / period,
+        adjust=False
+    ).mean()
 
 
 # =========================================================
-# 🏭 SECTOR SCORE
-# =========================================================
-
-def calculate_sector_scores(
-    data_dict
-):
-
-    sector_returns = {}
-
-    for symbol, df in data_dict.items():
-
-        try:
-
-            if df.empty:
-                continue
-
-            sector = SECTORS.get(
-                symbol,
-                "Other"
-            )
-
-            if len(df) < 21:
-                continue
-
-            ret = (
-                df["Close"].iloc[-1] /
-                df["Close"].iloc[-21] -
-                1
-            )
-
-            sector_returns.setdefault(
-                sector,
-                []
-            )
-
-            sector_returns[
-                sector
-            ].append(ret)
-
-        except Exception:
-            continue
-
-    sector_scores = {}
-
-    for sector, values in sector_returns.items():
-
-        if not values:
-            continue
-
-        avg_return = np.mean(
-            values
-        )
-
-        score = 50 + (
-            avg_return * 250
-        )
-
-        sector_scores[sector] = max(
-            0,
-            min(100, score)
-        )
-
-    return sector_scores
-
-
-# =========================================================
-# 🧠 MARKET REGIME
+# 🧠 تحديد اتجاه السهم
 # =========================================================
 
 def market_regime(last):
@@ -725,607 +464,577 @@ def market_regime(last):
     if last["rsi"] > 50:
         score += 1
 
-    if last["adx"] > 20:
-        score += 1
+    if score >= 4:
 
-    if score >= 5:
         return "🚀 قوي جداً"
 
-    if score == 4:
-        return "🟢 صعود قوي"
+    elif score == 3:
 
-    if score == 3:
         return "🟢 صعود"
 
-    if score == 2:
-        return "⚠️ محايد"
+    elif score == 2:
 
-    return "🔴 هبوط"
+        return "🟡 محايد"
+
+    else:
+
+        return "🔴 هبوط"
 
 
 # =========================================================
-# 🧠 TECHNICAL SCORE
+# 🧠 محرك الثقة
 # =========================================================
 
-def technical_score(
-    d,
-    w,
-    m
+def ai_confidence(
+    last_d,
+    last_w,
+    last_m,
+    adx_val,
+    atr_val
 ):
 
     score = 0
 
-    # -------------------------
-    # Trend = 35
-    # -------------------------
+    total = 8
 
-    if d["Close"] > d["ema200"]:
-        score += 10
+    if last_d["Close"] > last_d["ema200"]:
+        score += 1
 
-    if d["ema20"] > d["ema50"]:
-        score += 5
+    if last_w["Close"] > last_w["ema200"]:
+        score += 1
 
-    if w["Close"] > w["ema200"]:
-        score += 8
+    if last_m["Close"] > last_m["ema200"]:
+        score += 1
 
-    if m["Close"] > m["ema200"]:
-        score += 7
+    if last_d["macd"] > 0:
+        score += 1
 
-    if d["ema50"] > d["ema200"]:
-        score += 5
+    if 45 < last_d["rsi"] < 65:
+        score += 1
 
-    # -------------------------
-    # Momentum = 25
-    # -------------------------
+    if last_d["Volume"] > last_d["vol_ma"]:
+        score += 1
 
-    if 50 <= d["rsi"] <= 68:
-        score += 8
-
-    elif 45 <= d["rsi"] < 50:
-        score += 4
-
-    if d["macd"] > d["macd_signal"]:
-        score += 6
-
-    if d["macd_hist"] > 0:
-        score += 4
-
-    if d["adx"] >= 25:
-        score += 7
-
-    elif d["adx"] >= 20:
-        score += 4
-
-    # -------------------------
-    # Volume = 15
-    # -------------------------
-
-    if d["volume_ratio"] >= 2:
-        score += 8
-
-    elif d["volume_ratio"] >= 1.5:
-        score += 6
-
-    elif d["volume_ratio"] >= 1:
-        score += 3
+    if adx_val > 20:
+        score += 1
 
     if (
-        pd.notna(d["obv"]) and
-        pd.notna(d["obv_ma20"]) and
-        d["obv"] > d["obv_ma20"]
-    ):
-        score += 4
+        atr_val /
+        last_d["Close"]
+    ) < 0.05:
 
-    if pd.notna(d["mfi"]):
+        score += 1
 
-        if 50 <= d["mfi"] <= 80:
-            score += 3
-
-    # -------------------------
-    # Volatility / stability
-    # -------------------------
-
-    atr_pct = (
-        d["atr"] /
-        d["Close"] *
-        100
-    )
-
-    if 1.5 <= atr_pct <= 5:
-        score += 5
-
-    elif atr_pct <= 7:
-        score += 2
-
-    return min(
-        100,
-        score
-    )
+    return score / total
 
 
 # =========================================================
-# 🎯 TRADE PLAN
+# 🧠 التحليل الرئيسي
 # =========================================================
 
-def trade_plan(
-    df,
-    technical
+def analyze(
+    df_d,
+    df_w,
+    df_m
 ):
 
-    last = df.iloc[-1]
+    # إضافة المؤشرات
+
+    df_d = add_indicators(df_d)
+    df_w = add_indicators(df_w)
+    df_m = add_indicators(df_m)
+
+    # -----------------------------------------------------
+    # التأكد من البيانات
+    # -----------------------------------------------------
+
+    if (
+        len(df_d) < 50 or
+        len(df_w) < 50 or
+        len(df_m) < 50
+    ):
+
+        raise ValueError(
+            "بيانات غير كافية"
+        )
+
+    # -----------------------------------------------------
+    # تنظيف المؤشرات
+    # -----------------------------------------------------
+
+    df_d = df_d.dropna(
+        subset=[
+            "ema200",
+            "rsi",
+            "macd",
+            "vol_ma",
+            "support",
+            "resistance"
+        ]
+    )
+
+    df_w = df_w.dropna(
+        subset=[
+            "ema200"
+        ]
+    )
+
+    df_m = df_m.dropna(
+        subset=[
+            "ema200"
+        ]
+    )
+
+    if (
+        df_d.empty or
+        df_w.empty or
+        df_m.empty
+    ):
+
+        raise ValueError(
+            "المؤشرات غير متاحة"
+        )
+
+    # -----------------------------------------------------
+    # آخر قراءة
+    # -----------------------------------------------------
+
+    last_d = df_d.iloc[-1]
+
+    last_w = df_w.iloc[-1]
+
+    last_m = df_m.iloc[-1]
 
     entry = float(
-        last["Close"]
+        last_d["Close"]
     )
 
-    atr_value = float(
-        last["atr"]
+    if entry <= 0:
+
+        raise ValueError(
+            "سعر غير صحيح"
+        )
+
+    # -----------------------------------------------------
+    # ATR
+    # -----------------------------------------------------
+
+    atr_val = float(
+        atr(df_d).iloc[-1]
     )
+
+    # -----------------------------------------------------
+    # ADX
+    # -----------------------------------------------------
+
+    adx_val = float(
+        adx(df_d).iloc[-1]
+    )
+
+    if not np.isfinite(
+        atr_val
+    ):
+
+        raise ValueError(
+            "ATR غير صحيح"
+        )
+
+    if not np.isfinite(
+        adx_val
+    ):
+
+        adx_val = 0
+
+    # =====================================================
+    # ⭐ التقييم
+    # =====================================================
+
+    score = 0
+
+    # الاتجاه اليومي
+
+    if (
+        last_d["Close"] >
+        last_d["ema200"]
+    ):
+
+        score += 15
+
+    # الاتجاه الأسبوعي
+
+    if (
+        last_w["Close"] >
+        last_w["ema200"]
+    ):
+
+        score += 12
+
+    # الاتجاه الشهري
+
+    if (
+        last_m["Close"] >
+        last_m["ema200"]
+    ):
+
+        score += 15
+
+    # RSI
+
+    if (
+        45 <
+        last_d["rsi"] <
+        65
+    ):
+
+        score += 8
+
+    # MACD
+
+    if last_d["macd"] > 0:
+
+        score += 6
+
+    # Volume
+
+    if (
+        last_d["Volume"] >
+        last_d["vol_ma"]
+    ):
+
+        score += 8
+
+    # ADX
+
+    if adx_val > 20:
+
+        score += 10
+
+    # الاتجاه العام
+
+    regime = market_regime(
+        last_d
+    )
+
+    if "قوي" in regime:
+
+        score += 6
+
+    # المخاطرة
+
+    volatility = (
+        atr_val /
+        entry
+    )
+
+    if volatility < 0.05:
+
+        score += 5
+
+    else:
+
+        score -= 5
+
+    # =====================================================
+    # 🎯 الأهداف
+    # =====================================================
 
     support = float(
-        last["support20"]
+        last_d["support"]
     )
 
     resistance = float(
-        last["resistance20"]
+        last_d["resistance"]
     )
 
-    if entry <= 0 or atr_value <= 0:
-        raise ValueError(
-            "Invalid trade values"
+    ema_trend = (
+        float(last_d["ema20"]) -
+        float(last_d["ema200"])
+    ) / entry
+
+    adx_strength = min(
+        1.0,
+        max(
+            0.0,
+            adx_val / 100
         )
-
-    bullish = (
-        last["ema20"] >
-        last["ema50"] and
-        last["Close"] >
-        last["ema200"]
     )
 
-    # -------------------------
-    # STOP
-    # -------------------------
+    # -----------------------------------------------------
+    # الهدف الأول
+    # -----------------------------------------------------
 
-    atr_stop = (
-        entry -
-        atr_value * 1.5
-    )
+    if ema_trend > 0:
 
-    support_stop = (
-        support -
-        atr_value * 0.25
-    )
-
-    stop = max(
-        atr_stop,
-        support_stop
-    )
-
-    if stop >= entry:
-        stop = (
-            entry -
-            atr_value * 1.5
+        tp1 = (
+            entry +
+            atr_val * 0.8
         )
-
-    risk = entry - stop
-
-    # -------------------------
-    # TP1
-    # -------------------------
-
-    tp1_r = entry + risk * 1.0
-
-    # nearest resistance if above entry
-    if resistance > entry:
-
-        tp1 = min(
-            resistance,
-            tp1_r
-        )
-
-        if tp1 <= entry:
-            tp1 = tp1_r
 
     else:
-        tp1 = tp1_r
 
-    # -------------------------
-    # TP2
-    # -------------------------
-
-    tp2 = entry + risk * 2.0
-
-    if resistance > tp1:
-
-        tp2 = max(
-            tp2,
-            resistance
+        tp1 = (
+            entry -
+            atr_val * 0.8
         )
 
-    # -------------------------
-    # TP3
-    # -------------------------
+    # -----------------------------------------------------
+    # الهدف الثاني
+    # -----------------------------------------------------
 
-    tp3 = entry + risk * 3.0
-
-    resistance60 = float(
-        last.get(
-            "resistance60",
-            tp3
-        )
+    tp2_multiplier = (
+        1.8 +
+        adx_strength * 2
     )
 
-    if resistance60 > tp2:
+    if ema_trend > 0:
+
+        tp2 = (
+            entry +
+            atr_val *
+            tp2_multiplier
+        )
+
+    else:
+
+        tp2 = (
+            entry -
+            atr_val *
+            tp2_multiplier
+        )
+
+    # -----------------------------------------------------
+    # الهدف الثالث
+    # -----------------------------------------------------
+
+    trend_multiplier = (
+        3 +
+        adx_strength * 4 +
+        abs(ema_trend) * 10
+    )
+
+    if ema_trend > 0:
 
         tp3 = max(
-            tp3,
-            resistance60
+            resistance,
+            entry +
+            atr_val *
+            trend_multiplier
         )
 
-    # -------------------------
-    # R/R
-    # -------------------------
+    else:
 
-    rr1 = (
-        (tp1 - entry) /
-        risk
-        if risk > 0
-        else 0
+        tp3 = min(
+            support,
+            entry -
+            atr_val *
+            trend_multiplier
+        )
+
+    # =====================================================
+    # 🛑 وقف الخسارة
+    # =====================================================
+
+    if ema_trend > 0:
+
+        stop = (
+            entry -
+            atr_val *
+            (
+                1.2 +
+                volatility * 5
+            )
+        )
+
+    else:
+
+        stop = (
+            entry +
+            atr_val *
+            (
+                1.2 +
+                volatility * 5
+            )
+        )
+
+    # =====================================================
+    # ⏱️ المدة المتوقعة
+    # =====================================================
+
+    if volatility > 0.05:
+
+        time_est = "1 - 3 أسابيع"
+
+    elif volatility > 0.02:
+
+        time_est = "3 - 8 أسابيع"
+
+    else:
+
+        time_est = "2 - 4 شهور"
+
+    # =====================================================
+    # 🧠 الاحتمالات
+    # =====================================================
+
+    base_conf = ai_confidence(
+        last_d,
+        last_w,
+        last_m,
+        adx_val,
+        atr_val
     )
 
-    rr2 = (
-        (tp2 - entry) /
-        risk
-        if risk > 0
-        else 0
+    momentum_factor = min(
+        1.2,
+        max(
+            0.5,
+            adx_val / 25
+        )
     )
 
-    rr3 = (
-        (tp3 - entry) /
-        risk
-        if risk > 0
-        else 0
+    trend_factor = min(
+        1.2,
+        1 +
+        abs(ema_trend) * 5
     )
+
+    vol_factor = (
+        1 -
+        min(
+            0.5,
+            volatility
+        )
+    )
+
+    tp1_prob = min(
+        0.95,
+        base_conf *
+        momentum_factor *
+        trend_factor *
+        vol_factor
+    )
+
+    tp2_prob = min(
+        0.90,
+        tp1_prob *
+        (
+            0.85 +
+            adx_strength
+        )
+    )
+
+    tp3_prob = min(
+        0.85,
+        tp2_prob *
+        (
+            0.75 +
+            abs(ema_trend) * 3
+        )
+    )
+
+    # =====================================================
+    # 🚦 الإشارة
+    # =====================================================
+
+    if score > 85:
+
+        signal = "🔥 قوي جداً"
+
+    elif score > 70:
+
+        signal = "🟢 قوي"
+
+    elif score >= 55:
+
+        signal = "🟡 متوسط"
+
+    else:
+
+        signal = "⚠️ متابعة"
+
+    # =====================================================
+    # 📦 النتيجة
+    # =====================================================
 
     return {
-        "Entry": entry,
-        "SL": stop,
-        "TP1": tp1,
-        "TP2": tp2,
-        "TP3": tp3,
-        "RR_TP1": rr1,
-        "RR_TP2": rr2,
-        "RR_TP3": rr3,
-        "Bullish": bullish
+
+        "التقييم": round(
+            score,
+            2
+        ),
+
+        "الإشارة": signal,
+
+        "الاتجاه": regime,
+
+        "سعر الدخول": round(
+            entry,
+            2
+        ),
+
+        "وقف الخسارة": round(
+            stop,
+            2
+        ),
+
+        "الهدف الأول": round(
+            tp1,
+            2
+        ),
+
+        "الهدف الثاني": round(
+            tp2,
+            2
+        ),
+
+        "الهدف الثالث": round(
+            tp3,
+            2
+        ),
+
+        "احتمال الهدف الأول %": round(
+            tp1_prob * 100,
+            1
+        ),
+
+        "احتمال الهدف الثاني %": round(
+            tp2_prob * 100,
+            1
+        ),
+
+        "احتمال الهدف الثالث %": round(
+            tp3_prob * 100,
+            1
+        ),
+
+        "التذبذب ATR %": round(
+            volatility * 100,
+            2
+        ),
+
+        "قوة الاتجاه ADX": round(
+            adx_val,
+            2
+        ),
+
+        "مؤشر RSI": round(
+            float(last_d["rsi"]),
+            2
+        ),
+
+        "المدة المتوقعة": time_est
     }
 
 
 # =========================================================
-# 🧪 BACKTEST
+# ⚡ معالجة سهم واحد
 # =========================================================
 
-def backtest_stock(
-    df,
-    horizon=20
-):
-
-    try:
-
-        if len(df) < 260:
-            return {
-                "BT_Trades": 0,
-                "BT_WinRate": 0,
-                "BT_TP1Rate": 0,
-                "BT_AvgReturn": 0,
-                "BT_Confidence": 0
-            }
-
-        data = add_indicators(
-            df.copy()
-        )
-
-        data = data.dropna(
-            subset=[
-                "ema50",
-                "ema200",
-                "rsi",
-                "macd",
-                "atr",
-                "adx"
-            ]
-        )
-
-        if len(data) < 200:
-            return {
-                "BT_Trades": 0,
-                "BT_WinRate": 0,
-                "BT_TP1Rate": 0,
-                "BT_AvgReturn": 0,
-                "BT_Confidence": 0
-            }
-
-        trades = []
-
-        # sample every 5 sessions
-        # to reduce overfitting and processing time
-        indices = range(
-            200,
-            len(data) - horizon,
-            5
-        )
-
-        for i in indices:
-
-            row = data.iloc[i]
-
-            # historical signal
-            trend = (
-                row["Close"] >
-                row["ema200"]
-            )
-
-            momentum = (
-                row["ema20"] >
-                row["ema50"] and
-                row["macd"] >
-                row["macd_signal"]
-            )
-
-            rsi_ok = (
-                45 <
-                row["rsi"] <
-                70
-            )
-
-            adx_ok = (
-                row["adx"] >= 20
-            )
-
-            if not (
-                trend and
-                momentum and
-                rsi_ok and
-                adx_ok
-            ):
-                continue
-
-            entry = float(
-                row["Close"]
-            )
-
-            atr_value = float(
-                row["atr"]
-            )
-
-            if (
-                not np.isfinite(entry) or
-                not np.isfinite(atr_value) or
-                atr_value <= 0
-            ):
-                continue
-
-            sl = (
-                entry -
-                atr_value * 1.5
-            )
-
-            tp1 = (
-                entry +
-                atr_value * 1.5
-            )
-
-            future = data.iloc[
-                i + 1:
-                i + 1 + horizon
-            ]
-
-            hit_tp = False
-            hit_sl = False
-
-            for _, candle in future.iterrows():
-
-                high = float(
-                    candle["High"]
-                )
-
-                low = float(
-                    candle["Low"]
-                )
-
-                # conservative:
-                # if both occur same candle,
-                # SL is assumed first
-                if (
-                    low <= sl and
-                    high >= tp1
-                ):
-                    hit_sl = True
-                    break
-
-                if low <= sl:
-
-                    hit_sl = True
-                    break
-
-                if high >= tp1:
-
-                    hit_tp = True
-                    break
-
-            if hit_tp:
-
-                trades.append(
-                    {
-                        "win": 1,
-                        "return": (
-                            tp1 / entry - 1
-                        )
-                    }
-                )
-
-            elif hit_sl:
-
-                trades.append(
-                    {
-                        "win": 0,
-                        "return": (
-                            sl / entry - 1
-                        )
-                    }
-                )
-
-        if not trades:
-
-            return {
-                "BT_Trades": 0,
-                "BT_WinRate": 0,
-                "BT_TP1Rate": 0,
-                "BT_AvgReturn": 0,
-                "BT_Confidence": 0
-            }
-
-        wins = [
-            x["win"]
-            for x in trades
-        ]
-
-        returns = [
-            x["return"]
-            for x in trades
-        ]
-
-        trades_count = len(
-            trades
-        )
-
-        win_rate = (
-            np.mean(wins) * 100
-        )
-
-        avg_return = (
-            np.mean(returns) * 100
-        )
-
-        # Confidence:
-        # combines win rate + sample size
-        sample_factor = min(
-            1.0,
-            trades_count / 30
-        )
-
-        confidence = (
-            win_rate *
-            sample_factor
-        )
-
-        return {
-            "BT_Trades": trades_count,
-            "BT_WinRate": win_rate,
-            "BT_TP1Rate": win_rate,
-            "BT_AvgReturn": avg_return,
-            "BT_Confidence": confidence
-        }
-
-    except Exception:
-
-        return {
-            "BT_Trades": 0,
-            "BT_WinRate": 0,
-            "BT_TP1Rate": 0,
-            "BT_AvgReturn": 0,
-            "BT_Confidence": 0
-        }
-
-
-# =========================================================
-# 🧠 FINAL SCORE
-# =========================================================
-
-def final_score(
-    technical,
-    liquidity,
-    relative_strength,
-    sector_score,
-    rr_score,
-    backtest_confidence
-):
-
-    score = (
-
-        technical * 0.35 +
-
-        liquidity * 0.15 +
-
-        relative_strength * 0.15 +
-
-        sector_score * 0.10 +
-
-        rr_score * 0.10 +
-
-        backtest_confidence * 0.15
-
-    )
-
-    return round(
-        min(100, max(0, score)),
-        2
-    )
-
-
-# =========================================================
-# 🎯 SIGNAL
-# =========================================================
-
-def signal_from_score(score):
-
-    if score >= 85:
-        return "🔥 STRONG BUY"
-
-    if score >= 75:
-        return "🟢 BUY"
-
-    if score >= 65:
-        return "🟡 WATCH"
-
-    if score >= 50:
-        return "⚠️ NEUTRAL"
-
-    return "🔴 WEAK"
-
-
-# =========================================================
-# ⏱️ TIME ESTIMATION
-# =========================================================
-
-def time_estimation(
-    atr_pct
-):
-
-    if atr_pct >= 5:
-        return "1 - 3 weeks"
-
-    if atr_pct >= 3:
-        return "3 - 8 weeks"
-
-    if atr_pct >= 1.5:
-        return "1 - 3 months"
-
-    return "3 - 6 months"
-
-
-# =========================================================
-# ⚙️ PROCESS STOCK
-# =========================================================
-
-def process_stock(
+def process(
     symbol,
     daily,
     weekly,
-    monthly,
-    benchmark,
-    sector_scores,
-    min_liquidity,
-    backtest_horizon
+    monthly
 ):
 
     clean_symbol = symbol.replace(
@@ -1351,537 +1060,93 @@ def process_stock(
         )
 
         if df_d.empty:
+
             return {
-                "Symbol": clean_symbol,
-                "Status": "❌ Daily"
+                "السهم": clean_symbol,
+                "الحالة": "❌ لا توجد بيانات يومية"
             }
 
         if df_w.empty:
+
             return {
-                "Symbol": clean_symbol,
-                "Status": "❌ Weekly"
+                "السهم": clean_symbol,
+                "الحالة": "❌ لا توجد بيانات أسبوعية"
             }
 
         if df_m.empty:
+
             return {
-                "Symbol": clean_symbol,
-                "Status": "❌ Monthly"
+                "السهم": clean_symbol,
+                "الحالة": "❌ لا توجد بيانات شهرية"
             }
 
-        # -------------------------
-        # indicators
-        # -------------------------
-
-        df_d = add_indicators(
-            df_d
-        )
-
-        df_w = add_indicators(
-            df_w
-        )
-
-        df_m = add_indicators(
+        result = analyze(
+            df_d,
+            df_w,
             df_m
         )
 
-        required_d = [
-            "ema20",
-            "ema50",
-            "ema200",
-            "rsi",
-            "macd",
-            "macd_signal",
-            "macd_hist",
-            "atr",
-            "adx",
-            "vol_ma20",
-            "volume_ratio",
-            "avg_traded_value",
-            "support20",
-            "resistance20"
-        ]
+        result["السهم"] = clean_symbol
 
-        if not all(
-            c in df_d.columns
-            for c in required_d
-        ):
-            return {
-                "Symbol": clean_symbol,
-                "Status": "❌ Indicators"
-            }
+        result["الحالة"] = "✅ تم التحليل"
 
-        df_d = df_d.dropna(
-            subset=required_d
-        )
-
-        df_w = df_w.dropna(
-            subset=[
-                "ema200"
-            ]
-        )
-
-        df_m = df_m.dropna(
-            subset=[
-                "ema200"
-            ]
-        )
-
-        if (
-            len(df_d) < 50 or
-            len(df_w) < 50 or
-            len(df_m) < 50
-        ):
-            return {
-                "Symbol": clean_symbol,
-                "Status": "❌ Insufficient"
-            }
-
-        last_d = df_d.iloc[-1]
-        last_w = df_w.iloc[-1]
-        last_m = df_m.iloc[-1]
-
-        # -------------------------
-        # Liquidity
-        # -------------------------
-
-        avg_value = float(
-            last_d[
-                "avg_traded_value"
-            ]
-        )
-
-        liquidity = liquidity_score(
-            last_d
-        )
-
-        liquidity_status = (
-            "PASS"
-            if avg_value >= min_liquidity
-            else "LOW"
-        )
-
-        # -------------------------
-        # Relative Strength
-        # -------------------------
-
-        rs_score, rs_pct = (
-            calculate_relative_strength(
-                df_d,
-                benchmark
-            )
-        )
-
-        # -------------------------
-        # Technical
-        # -------------------------
-
-        technical = technical_score(
-            last_d,
-            last_w,
-            last_m
-        )
-
-        # -------------------------
-        # Sector
-        # -------------------------
-
-        sector = SECTORS.get(
-            symbol,
-            "Other"
-        )
-
-        sector_score = sector_scores.get(
-            sector,
-            50
-        )
-
-        # -------------------------
-        # Trade plan
-        # -------------------------
-
-        plan = trade_plan(
-            df_d,
-            technical
-        )
-
-        rr_score = min(
-            100,
-            max(
-                0,
-                plan["RR_TP2"] /
-                3 *
-                100
-            )
-        )
-
-        # -------------------------
-        # Backtest
-        # -------------------------
-
-        bt = backtest_stock(
-            df_d,
-            backtest_horizon
-        )
-
-        # -------------------------
-        # Final Score
-        # -------------------------
-
-        final = final_score(
-            technical,
-            liquidity,
-            rs_score,
-            sector_score,
-            rr_score,
-            bt["BT_Confidence"]
-        )
-
-        # If liquidity below threshold:
-        # don't completely delete stock,
-        # but flag it clearly.
-        if avg_value < min_liquidity:
-
-            final *= 0.80
-
-        final = round(
-            final,
-            2
-        )
-
-        signal = signal_from_score(
-            final
-        )
-
-        # -------------------------
-        # Regime
-        # -------------------------
-
-        regime = market_regime(
-            last_d
-        )
-
-        # -------------------------
-        # ATR
-        # -------------------------
-
-        atr_pct = (
-            last_d["atr"] /
-            last_d["Close"] *
-            100
-        )
-
-        # -------------------------
-        # Time
-        # -------------------------
-
-        time_est = time_estimation(
-            atr_pct
-        )
-
-        return {
-
-            "Symbol":
-                clean_symbol,
-
-            "Status":
-                "✅ OK",
-
-            "Sector":
-                sector,
-
-            "Score":
-                final,
-
-            "Signal":
-                signal,
-
-            "Regime":
-                regime,
-
-            # ---------------------
-            # Trade
-            # ---------------------
-
-            "Entry":
-                round(
-                    plan["Entry"],
-                    2
-                ),
-
-            "SL":
-                round(
-                    plan["SL"],
-                    2
-                ),
-
-            "TP1":
-                round(
-                    plan["TP1"],
-                    2
-                ),
-
-            "TP2":
-                round(
-                    plan["TP2"],
-                    2
-                ),
-
-            "TP3":
-                round(
-                    plan["TP3"],
-                    2
-                ),
-
-            "RR_TP1":
-                round(
-                    plan["RR_TP1"],
-                    2
-                ),
-
-            "RR_TP2":
-                round(
-                    plan["RR_TP2"],
-                    2
-                ),
-
-            "RR_TP3":
-                round(
-                    plan["RR_TP3"],
-                    2
-                ),
-
-            # ---------------------
-            # Technical
-            # ---------------------
-
-            "Technical":
-                round(
-                    technical,
-                    1
-                ),
-
-            "RSI":
-                round(
-                    float(
-                        last_d["rsi"]
-                    ),
-                    2
-                ),
-
-            "ADX":
-                round(
-                    float(
-                        last_d["adx"]
-                    ),
-                    2
-                ),
-
-            "ATR_%":
-                round(
-                    atr_pct,
-                    2
-                ),
-
-            "MACD_Hist":
-                round(
-                    float(
-                        last_d[
-                            "macd_hist"
-                        ]
-                    ),
-                    4
-                ),
-
-            # ---------------------
-            # Liquidity
-            # ---------------------
-
-            "Liquidity":
-                round(
-                    liquidity,
-                    1
-                ),
-
-            "Avg_Value_EGP":
-                round(
-                    avg_value,
-                    0
-                ),
-
-            "Volume_Ratio":
-                round(
-                    float(
-                        last_d[
-                            "volume_ratio"
-                        ]
-                    ),
-                    2
-                ),
-
-            "Liquidity_Status":
-                liquidity_status,
-
-            # ---------------------
-            # Relative Strength
-            # ---------------------
-
-            "RS_Score":
-                round(
-                    rs_score,
-                    1
-                ),
-
-            "RS_vs_EGX30_%":
-                round(
-                    rs_pct,
-                    2
-                ),
-
-            # ---------------------
-            # Sector
-            # ---------------------
-
-            "Sector_Score":
-                round(
-                    sector_score,
-                    1
-                ),
-
-            # ---------------------
-            # Backtest
-            # ---------------------
-
-            "BT_Trades":
-                bt["BT_Trades"],
-
-            "BT_WinRate_%":
-                round(
-                    bt["BT_WinRate"],
-                    1
-                ),
-
-            "BT_AvgReturn_%":
-                round(
-                    bt["BT_AvgReturn"],
-                    2
-                ),
-
-            "BT_Confidence_%":
-                round(
-                    bt["BT_Confidence"],
-                    1
-                ),
-
-            "Time_Est":
-                time_est
-        }
+        return result
 
     except Exception as e:
 
         return {
-            "Symbol":
-                clean_symbol,
-
-            "Status":
-                f"❌ {str(e)[:100]}"
+            "السهم": clean_symbol,
+            "الحالة": f"❌ {str(e)[:80]}"
         }
 
 
 # =========================================================
-# 📊 BENCHMARK LOADER
-# =========================================================
-
-@st.cache_data(
-    ttl=3600,
-    show_spinner=False
-)
-def load_benchmark(
-    period
-):
-
-    candidates = [
-        "^CASE30",
-        "^EGX30",
-        "EGX30.CA"
-    ]
-
-    for symbol in candidates:
-
-        try:
-
-            data = yf.download(
-                symbol,
-                period=period,
-                interval="1d",
-                auto_adjust=True,
-                progress=False
-            )
-
-            if (
-                data is not None and
-                not data.empty
-            ):
-
-                if isinstance(
-                    data.columns,
-                    pd.MultiIndex
-                ):
-                    data.columns = (
-                        data.columns
-                        .get_level_values(0)
-                    )
-
-                if "Close" in data.columns:
-
-                    return data[
-                        ["Close"]
-                    ].dropna()
-
-        except Exception:
-            continue
-
-    return pd.DataFrame()
-
-
-# =========================================================
-# 🚀 RUN
+# 🚀 تشغيل الفحص
 # =========================================================
 
 if st.button(
-    "🚀 RUN EGX AI PRO MAX V6",
+    "🚀 بدء فحص الأسهم",
     use_container_width=True
 ):
 
+    # -----------------------------------------------------
+    # الحالة
+    # -----------------------------------------------------
+
     st.info(
-        f"📡 جاري فحص {len(EGX100)} رمز..."
+        f"📡 جاري فحص {TOTAL_STOCKS} سهم..."
     )
 
-    progress = st.progress(0)
-
-    status = st.empty()
-
-    # =====================================================
-    # DOWNLOAD DAILY
-    # =====================================================
-
-    status.info(
-        "📥 تحميل البيانات اليومية..."
+    progress = st.progress(
+        0
     )
 
-    daily = load_data(
-        EGX100,
-        period_daily,
-        "1d"
+    status_text = st.empty()
+
+    # =====================================================
+    # 📥 البيانات اليومية
+    # =====================================================
+
+    with st.spinner(
+        "📥 جاري تحميل البيانات اليومية..."
+    ):
+
+        daily = load_data(
+            EGX100,
+            period_daily,
+            "1d"
+        )
+
+    progress.progress(
+        20
     )
 
-    progress.progress(15)
-
     # =====================================================
-    # DOWNLOAD WEEKLY
+    # 📥 البيانات الأسبوعية
     # =====================================================
 
-    status.info(
-        "📥 تحميل البيانات الأسبوعية..."
+    status_text.info(
+        "📥 جاري تحميل البيانات الأسبوعية..."
     )
 
     weekly = load_data(
@@ -1890,14 +1155,16 @@ if st.button(
         "1wk"
     )
 
-    progress.progress(30)
+    progress.progress(
+        40
+    )
 
     # =====================================================
-    # DOWNLOAD MONTHLY
+    # 📥 البيانات الشهرية
     # =====================================================
 
-    status.info(
-        "📥 تحميل البيانات الشهرية..."
+    status_text.info(
+        "📥 جاري تحميل البيانات الشهرية..."
     )
 
     monthly = load_data(
@@ -1906,59 +1173,18 @@ if st.button(
         "1mo"
     )
 
-    progress.progress(45)
-
-    # =====================================================
-    # BENCHMARK
-    # =====================================================
-
-    status.info(
-        "📊 تحميل Benchmark EGX30..."
-    )
-
-    benchmark = load_benchmark(
-        period_daily
-    )
-
-    progress.progress(50)
-
-    # =====================================================
-    # PREPARE DATA FOR SECTORS
-    # =====================================================
-
-    status.info(
-        "🏭 حساب أداء القطاعات..."
-    )
-
-    daily_dict = {}
-
-    for symbol in EGX100:
-
-        temp = extract_symbol_data(
-            daily,
-            symbol
-        )
-
-        if not temp.empty:
-
-            daily_dict[
-                symbol
-            ] = temp
-
-    sector_scores = (
-        calculate_sector_scores(
-            daily_dict
-        )
+    progress.progress(
+        50
     )
 
     # =====================================================
-    # PARALLEL ANALYSIS
+    # 🧠 التحليل
     # =====================================================
 
     results = []
 
-    status.info(
-        f"🧠 تحليل {len(EGX100)} سهم..."
+    status_text.info(
+        f"🧠 جاري تحليل {TOTAL_STOCKS} سهم بالتوازي..."
     )
 
     with ThreadPoolExecutor(
@@ -1966,17 +1192,12 @@ if st.button(
     ) as executor:
 
         futures = {
-
             executor.submit(
-                process_stock,
+                process,
                 symbol,
                 daily,
                 weekly,
-                monthly,
-                benchmark,
-                sector_scores,
-                min_liquidity,
-                backtest_horizon
+                monthly
             ): symbol
 
             for symbol in EGX100
@@ -1988,31 +1209,32 @@ if st.button(
             futures
         ):
 
-            symbol = futures[
-                future
-            ]
-
             try:
 
                 result = future.result()
 
                 if result:
+
                     results.append(
                         result
                     )
 
             except Exception as e:
 
+                symbol = futures[
+                    future
+                ]
+
                 results.append({
 
-                    "Symbol":
+                    "السهم":
                         symbol.replace(
                             ".CA",
                             ""
                         ),
 
-                    "Status":
-                        f"❌ {str(e)[:100]}"
+                    "الحالة":
+                        f"❌ {str(e)[:80]}"
                 })
 
             completed += 1
@@ -2021,25 +1243,27 @@ if st.button(
                 50 +
                 int(
                     completed /
-                    len(EGX100) *
+                    TOTAL_STOCKS *
                     50
                 )
             )
 
-    progress.progress(100)
+    progress.progress(
+        100
+    )
 
-    status.success(
+    status_text.success(
         "✅ انتهى الفحص بالكامل"
     )
 
     # =====================================================
-    # DATAFRAME
+    # 📊 النتائج
     # =====================================================
 
     if not results:
 
         st.error(
-            "❌ مفيش نتائج."
+            "❌ لم يتم الحصول على أي نتائج."
         )
 
         st.stop()
@@ -2049,530 +1273,240 @@ if st.button(
     )
 
     # =====================================================
-    # COVERAGE
+    # 📊 التغطية
     # =====================================================
 
-    total_requested = len(
-        EGX100
-    )
+    total = TOTAL_STOCKS
 
     analyzed = int(
         (
-            df_all["Status"] ==
-            "✅ OK"
+            df_all["الحالة"] ==
+            "✅ تم التحليل"
         ).sum()
     )
 
-    failed = (
-        total_requested -
-        analyzed
-    )
+    failed = total - analyzed
 
     coverage = (
         analyzed /
-        total_requested *
+        total *
         100
-        if total_requested
+        if total > 0
         else 0
     )
 
     # =====================================================
-    # TOP METRICS
+    # 📊 مؤشرات عامة
     # =====================================================
 
     st.subheader(
-        "📡 Data Coverage"
+        "📊 ملخص الفحص"
     )
 
-    c1, c2, c3, c4, c5 = st.columns(5)
+    c1, c2, c3, c4 = st.columns(4)
 
     c1.metric(
-        "Universe",
-        total_requested
+        "📊 الأسهم المطلوبة",
+        total
     )
 
     c2.metric(
-        "Analyzed",
+        "✅ تم تحليلها",
         analyzed
     )
 
     c3.metric(
-        "Failed",
+        "❌ فشل",
         failed
     )
 
     c4.metric(
-        "Coverage",
+        "📡 نسبة التغطية",
         f"{coverage:.1f}%"
     )
 
-    c5.metric(
-        "Benchmark",
-        "OK"
-        if not benchmark.empty
-        else "FAILED"
-    )
-
     # =====================================================
-    # VALID RESULTS
+    # 📈 الأسهم الناجحة
     # =====================================================
 
     df_ok = df_all[
-        df_all["Status"] ==
-        "✅ OK"
+        df_all["الحالة"] ==
+        "✅ تم التحليل"
     ].copy()
 
-    if df_ok.empty:
+    if not df_ok.empty:
 
-        st.error(
-            "❌ مفيش سهم نجح في التحليل."
+        # ترتيب حسب التقييم
+
+        df_ok = df_ok.sort_values(
+            "التقييم",
+            ascending=False
         )
 
-        st.stop()
+        # =================================================
+        # 🏆 أفضل الأسهم
+        # =================================================
 
-    # =====================================================
-    # SORT
-    # =====================================================
+        st.subheader(
+            f"🏆 أفضل {min(top_n, len(df_ok))} سهم"
+        )
 
-    df_ok = df_ok.sort_values(
-        "Score",
-        ascending=False
-    )
+        top_df = df_ok.head(
+            top_n
+        ).copy()
 
-    # =====================================================
-    # 🏆 TOP STOCKS
-    # =====================================================
+        preferred_cols = [
 
-    st.subheader(
-        f"🏆 أفضل {min(top_n, len(df_ok))} سهم"
-    )
+            "السهم",
 
-    display_cols = [
+            "التقييم",
 
-        "Symbol",
-        "Sector",
-        "Score",
-        "Signal",
-        "Regime",
+            "الإشارة",
 
-        "Entry",
-        "SL",
-        "TP1",
-        "TP2",
-        "TP3",
+            "الاتجاه",
 
-        "RR_TP1",
-        "RR_TP2",
-        "RR_TP3",
+            "سعر الدخول",
 
-        "Technical",
-        "Liquidity",
-        "Avg_Value_EGP",
-        "RS_Score",
-        "RS_vs_EGX30_%",
+            "وقف الخسارة",
 
-        "Sector_Score",
+            "الهدف الأول",
 
-        "BT_Trades",
-        "BT_WinRate_%",
-        "BT_Confidence_%",
+            "الهدف الثاني",
 
-        "RSI",
-        "ADX",
-        "ATR_%",
+            "الهدف الثالث",
 
-        "Time_Est"
-    ]
+            "احتمال الهدف الأول %",
 
-    display_cols = [
-        c for c in display_cols
-        if c in df_ok.columns
-    ]
+            "احتمال الهدف الثاني %",
 
-    top_df = df_ok.head(
-        top_n
-    )
+            "احتمال الهدف الثالث %",
 
-    st.dataframe(
-        top_df[
-            display_cols
-        ],
-        use_container_width=True,
-        hide_index=True
-    )
+            "مؤشر RSI",
 
-    # =====================================================
-    # 🔥 STRONG
-    # =====================================================
+            "قوة الاتجاه ADX",
 
-    strong = df_ok[
-        df_ok["Score"] >=
-        min_score
-    ].copy()
+            "التذبذب ATR %",
 
-    st.subheader(
-        f"🔥 فرص Score ≥ {min_score}: {len(strong)}"
-    )
+            "المدة المتوقعة"
 
-    if not strong.empty:
+        ]
+
+        existing_cols = [
+
+            c for c in preferred_cols
+            if c in top_df.columns
+
+        ]
+
+        top_df = top_df[
+            existing_cols
+        ]
 
         st.dataframe(
-            strong[
-                display_cols
+            top_df,
+            use_container_width=True,
+            hide_index=True
+        )
+
+        # =================================================
+        # 🔥 الأسهم القوية
+        # =================================================
+
+        strong = df_ok[
+            df_ok["التقييم"] > 70
+        ].copy()
+
+        st.subheader(
+            f"🔥 الأسهم القوية: {len(strong)}"
+        )
+
+        if not strong.empty:
+
+            strong = strong[
+                existing_cols
+            ]
+
+            st.dataframe(
+                strong,
+                use_container_width=True,
+                hide_index=True
+            )
+
+        else:
+
+            st.warning(
+                "⚠️ لا توجد أسهم قوية حالياً حسب شروط النظام."
+            )
+
+        # =================================================
+        # 📋 جميع الأسهم المحللة
+        # =================================================
+
+        st.subheader(
+            "📋 جميع الأسهم التي تم تحليلها"
+        )
+
+        st.dataframe(
+            df_ok[
+                existing_cols
             ],
             use_container_width=True,
             hide_index=True
         )
 
-    else:
+        # =================================================
+        # 💾 تحميل النتائج
+        # =================================================
 
-        st.warning(
-            "⚠️ مفيش أسهم وصلت للحد المطلوب."
-        )
-
-    # =====================================================
-    # 🏭 BEST STOCK PER SECTOR
-    # =====================================================
-
-    st.subheader(
-        "🏭 أفضل سهم في كل قطاع"
-    )
-
-    sector_best = (
-        df_ok
-        .sort_values(
-            "Score",
-            ascending=False
-        )
-        .groupby(
-            "Sector",
-            as_index=False
-        )
-        .first()
-        .sort_values(
-            "Score",
-            ascending=False
-        )
-    )
-
-    st.dataframe(
-        sector_best[
-            [
-                "Sector",
-                "Symbol",
-                "Score",
-                "Signal",
-                "Technical",
-                "Liquidity",
-                "RS_Score",
-                "Sector_Score",
-                "BT_Confidence_%",
-                "RR_TP2"
-            ]
-        ],
-        use_container_width=True,
-        hide_index=True
-    )
-
-    # =====================================================
-    # 🏭 SECTOR RANKING
-    # =====================================================
-
-    st.subheader(
-        "📊 Sector Ranking"
-    )
-
-    sector_ranking = (
-        df_ok
-        .groupby("Sector")
-        .agg(
-            Stocks=("Symbol", "count"),
-            AvgScore=("Score", "mean"),
-            AvgLiquidity=("Liquidity", "mean"),
-            AvgRS=("RS_Score", "mean"),
-            AvgBTConfidence=(
-                "BT_Confidence_%",
-                "mean"
+        csv_ok = (
+            df_ok
+            .to_csv(
+                index=False
+            )
+            .encode(
+                "utf-8-sig"
             )
         )
-        .reset_index()
-        .sort_values(
-            "AvgScore",
-            ascending=False
-        )
-    )
 
-    sector_ranking[
-        "AvgScore"
-    ] = sector_ranking[
-        "AvgScore"
-    ].round(2)
-
-    sector_ranking[
-        "AvgLiquidity"
-    ] = sector_ranking[
-        "AvgLiquidity"
-    ].round(2)
-
-    sector_ranking[
-        "AvgRS"
-    ] = sector_ranking[
-        "AvgRS"
-    ].round(2)
-
-    sector_ranking[
-        "AvgBTConfidence"
-    ] = sector_ranking[
-        "AvgBTConfidence"
-    ].round(2)
-
-    st.dataframe(
-        sector_ranking,
-        use_container_width=True,
-        hide_index=True
-    )
-
-    # =====================================================
-    # 💧 LIQUIDITY LEADERS
-    # =====================================================
-
-    st.subheader(
-        "💧 Liquidity Leaders"
-    )
-
-    liquidity_df = (
-        df_ok
-        .sort_values(
-            "Avg_Value_EGP",
-            ascending=False
-        )
-        .head(20)
-    )
-
-    st.dataframe(
-        liquidity_df[
-            [
-                "Symbol",
-                "Sector",
-                "Score",
-                "Liquidity",
-                "Avg_Value_EGP",
-                "Volume_Ratio",
-                "Signal"
-            ]
-        ],
-        use_container_width=True,
-        hide_index=True
-    )
-
-    # =====================================================
-    # 📈 RELATIVE STRENGTH LEADERS
-    # =====================================================
-
-    st.subheader(
-        "📈 Relative Strength Leaders vs EGX30"
-    )
-
-    rs_df = (
-        df_ok
-        .sort_values(
-            "RS_Score",
-            ascending=False
-        )
-        .head(20)
-    )
-
-    st.dataframe(
-        rs_df[
-            [
-                "Symbol",
-                "Sector",
-                "Score",
-                "RS_Score",
-                "RS_vs_EGX30_%",
-                "Signal"
-            ]
-        ],
-        use_container_width=True,
-        hide_index=True
-    )
-
-    # =====================================================
-    # 🧪 BACKTEST LEADERS
-    # =====================================================
-
-    st.subheader(
-        "🧪 Backtest Leaders"
-    )
-
-    bt_df = (
-        df_ok[
-            df_ok["BT_Trades"] >= 5
-        ]
-        .sort_values(
-            [
-                "BT_Confidence_%",
-                "BT_WinRate_%"
-            ],
-            ascending=False
-        )
-        .head(20)
-    )
-
-    if not bt_df.empty:
-
-        st.dataframe(
-            bt_df[
-                [
-                    "Symbol",
-                    "Sector",
-                    "Score",
-                    "BT_Trades",
-                    "BT_WinRate_%",
-                    "BT_AvgReturn_%",
-                    "BT_Confidence_%"
-                ]
-            ],
-            use_container_width=True,
-            hide_index=True
+        st.download_button(
+            "⬇️ تحميل نتائج الأسهم المحللة",
+            csv_ok,
+            "EGX_AI_PRO_MAX_RESULTS_AR.csv",
+            "text/csv",
+            use_container_width=True
         )
 
     else:
 
-        st.warning(
-            "⚠️ مفيش عدد كافي من صفقات الـ Backtest."
+        st.error(
+            "❌ لم ينجح أي سهم في التحليل."
         )
 
     # =====================================================
-    # ⚠️ LOW LIQUIDITY
-    # =====================================================
-
-    low_liq = df_ok[
-        df_ok[
-            "Liquidity_Status"
-        ] == "LOW"
-    ].copy()
-
-    st.subheader(
-        f"⚠️ أسهم السيولة الضعيفة: {len(low_liq)}"
-    )
-
-    if not low_liq.empty:
-
-        st.dataframe(
-            low_liq[
-                [
-                    "Symbol",
-                    "Sector",
-                    "Score",
-                    "Avg_Value_EGP",
-                    "Liquidity_Status"
-                ]
-            ],
-            use_container_width=True,
-            hide_index=True
-        )
-
-    # =====================================================
-    # 📋 ALL ANALYZED
-    # =====================================================
-
-    st.subheader(
-        "📋 جميع الأسهم المحللة"
-    )
-
-    st.dataframe(
-        df_ok[
-            display_cols
-        ],
-        use_container_width=True,
-        hide_index=True
-    )
-
-    # =====================================================
-    # ❌ FAILED
+    # ⚠️ الأسهم الفاشلة
     # =====================================================
 
     df_failed = df_all[
-        df_all["Status"] != "✅ OK"
+        df_all["الحالة"] !=
+        "✅ تم التحليل"
     ].copy()
 
-    st.subheader(
-        f"❌ الأسهم الفاشلة: {len(df_failed)}"
-    )
-
     if not df_failed.empty:
+
+        st.subheader(
+            f"⚠️ الأسهم التي فشل تحميل/تحليل بياناتها: {len(df_failed)}"
+        )
 
         st.dataframe(
             df_failed[
                 [
-                    "Symbol",
-                    "Status"
+                    "السهم",
+                    "الحالة"
                 ]
             ],
             use_container_width=True,
             hide_index=True
         )
-
-    # =====================================================
-    # 📥 DOWNLOAD FULL
-    # =====================================================
-
-    csv_all = df_ok.to_csv(
-        index=False
-    ).encode(
-        "utf-8-sig"
-    )
-
-    st.download_button(
-        "⬇️ تحميل كل النتائج CSV",
-        csv_all,
-        "EGX_AI_PRO_MAX_V6_ALL.csv",
-        "text/csv",
-        use_container_width=True
-    )
-
-    # =====================================================
-    # 📥 DOWNLOAD TOP
-    # =====================================================
-
-    csv_top = top_df.to_csv(
-        index=False
-    ).encode(
-        "utf-8-sig"
-    )
-
-    st.download_button(
-        "⬇️ تحميل أفضل الأسهم CSV",
-        csv_top,
-        "EGX_AI_PRO_MAX_V6_TOP.csv",
-        "text/csv",
-        use_container_width=True
-    )
-
-    # =====================================================
-    # 📥 DOWNLOAD SECTORS
-    # =====================================================
-
-    csv_sector = sector_best.to_csv(
-        index=False
-    ).encode(
-        "utf-8-sig"
-    )
-
-    st.download_button(
-        "⬇️ تحميل أفضل سهم لكل قطاع",
-        csv_sector,
-        "EGX_AI_PRO_MAX_V6_SECTORS.csv",
-        "text/csv",
-        use_container_width=True
-    )
-
-    # =====================================================
-    # 📥 DOWNLOAD ERRORS
-    # =====================================================
-
-    if not df_failed.empty:
 
         csv_failed = (
             df_failed
@@ -2585,59 +1519,27 @@ if st.button(
         )
 
         st.download_button(
-            "⬇️ تحميل الأخطاء",
+            "⬇️ تحميل قائمة الأخطاء",
             csv_failed,
-            "EGX_AI_PRO_MAX_V6_ERRORS.csv",
+            "EGX_AI_PRO_MAX_ERRORS_AR.csv",
             "text/csv",
             use_container_width=True
         )
 
     # =====================================================
-    # FINAL SUMMARY
+    # 🏁 الحالة النهائية
     # =====================================================
-
-    avg_score = round(
-        df_ok["Score"].mean(),
-        2
-    )
-
-    avg_bt = round(
-        df_ok[
-            "BT_Confidence_%"
-        ].mean(),
-        2
-    )
 
     st.success(
         f"""
-🔥 EGX AI PRO MAX V6 اكتمل
+🔥 الفحص اكتمل بنجاح
 
-📊 الكون المطلوب: {total_requested}
+📊 إجمالي الأسهم: {total}
 
-✅ تم التحليل: {analyzed}
+✅ تم تحليل: {analyzed}
 
 ❌ فشل: {failed}
 
-📡 Data Coverage: {coverage:.1f}%
-
-⭐ متوسط Final Score: {avg_score}
-
-🧪 متوسط Backtest Confidence: {avg_bt}%
-
-🏆 أفضل سهم:
-{df_ok.iloc[0]["Symbol"]}
-
-📈 Score:
-{df_ok.iloc[0]["Score"]}
+📡 نسبة تغطية البيانات: {coverage:.1f}%
 """
     )
-
-    # =====================================================
-    # DISCLAIMER
-    # =====================================================
-
-    st.caption(
-        "⚠️ الـ Backtest تاريخي وليس ضمانًا للنتائج المستقبلية. "
-        "الـ Confidence هنا مبني على نتائج تاريخية داخل البيانات المتاحة، "
-        "وليس توقعًا مضمونًا."
-)
