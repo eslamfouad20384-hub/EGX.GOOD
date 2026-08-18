@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import ta
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # =========================================================
@@ -16,7 +17,9 @@ st.set_page_config(
 )
 
 st.title("🚀 EGX AI PRO MAX v6")
-st.caption("📊 فحص الأسهم المصرية • تحليل متعدد الفترات • تقييم ذكي • محرك بيانات سريع")
+st.caption(
+    "📊 فحص الأسهم المصرية • تحليل متعدد الفترات • تقييم ذكي • محرك بيانات سريع"
+)
 
 # =========================================================
 # 📌 قائمة الأسهم
@@ -45,7 +48,7 @@ EGX100 = [
     "COSG.CA", "MEDA.CA", "ELSH.CA", "AMPI.CA", "COPR.CA"
 ]
 
-# إزالة التكرارات
+# إزالة التكرارات مع الحفاظ على الترتيب
 EGX100 = list(dict.fromkeys(EGX100))
 
 TOTAL_STOCKS = len(EGX100)
@@ -90,6 +93,33 @@ top_n = st.sidebar.slider(
     step=5
 )
 
+# =========================================================
+# 💰 إعدادات إدارة رأس المال
+# =========================================================
+
+st.sidebar.markdown("---")
+st.sidebar.header("💰 إدارة المخاطر")
+
+capital = st.sidebar.number_input(
+    "رأس المال بالجنيه",
+    min_value=1000.0,
+    max_value=100000000.0,
+    value=100000.0,
+    step=5000.0
+)
+
+risk_percent = st.sidebar.slider(
+    "مخاطرة الصفقة %",
+    min_value=0.5,
+    max_value=10.0,
+    value=2.0,
+    step=0.5
+)
+
+# =========================================================
+# 📊 معلومات
+# =========================================================
+
 st.sidebar.markdown("---")
 
 st.sidebar.metric(
@@ -113,9 +143,20 @@ st.sidebar.info(
     • MACD
     • Volume
     • OBV
+    • MFI
+    • Stochastic RSI
+    • VWAP
+    • Volume Ratio
     • ATR
     • ADX
     • الدعم والمقاومة
+    • Fibonacci
+    • Breakout
+    • Pullback
+    • Trend Slope
+    • Trend Alignment
+    • Entry Engine
+    • Risk Engine
     • التقييم النهائي
     • الدخول
     • وقف الخسارة
@@ -124,7 +165,18 @@ st.sidebar.info(
 )
 
 # =========================================================
-# 📊 تحميل البيانات
+# 🧠 ثوابت النظام
+# =========================================================
+
+MIN_DAILY_ROWS = 60
+MIN_WEEKLY_ROWS = 60
+MIN_MONTHLY_ROWS = 50
+
+DOWNLOAD_RETRIES = 3
+DOWNLOAD_RETRY_DELAY = 2
+
+# =========================================================
+# 📥 DATA ENGINE
 # =========================================================
 
 @st.cache_data(
@@ -136,23 +188,43 @@ def load_data(symbols, period, interval):
     if not symbols:
         return pd.DataFrame()
 
-    try:
+    symbols = tuple(symbols)
 
-        data = yf.download(
-            tickers=symbols,
-            period=period,
-            interval=interval,
-            group_by="ticker",
-            threads=True,
-            auto_adjust=True,
-            progress=False
-        )
+    last_error = None
 
-        return data
+    for attempt in range(DOWNLOAD_RETRIES):
 
-    except Exception:
+        try:
 
-        return None
+            data = yf.download(
+                tickers=list(symbols),
+                period=period,
+                interval=interval,
+                group_by="ticker",
+                threads=True,
+                auto_adjust=True,
+                progress=False,
+                timeout=30
+            )
+
+            if data is not None and not data.empty:
+
+                return data
+
+            last_error = "Yahoo returned empty data"
+
+        except Exception as e:
+
+            last_error = str(e)
+
+        if attempt < DOWNLOAD_RETRIES - 1:
+
+            time.sleep(
+                DOWNLOAD_RETRY_DELAY *
+                (attempt + 1)
+            )
+
+    return pd.DataFrame()
 
 
 # =========================================================
@@ -164,16 +236,23 @@ def extract_symbol_data(data, symbol):
     try:
 
         if data is None or data.empty:
+
             return pd.DataFrame()
 
+        # -------------------------------------------------
         # MultiIndex
+        # -------------------------------------------------
+
         if isinstance(data.columns, pd.MultiIndex):
 
-            if symbol in data.columns.get_level_values(0):
+            level0 = data.columns.get_level_values(0)
+            level1 = data.columns.get_level_values(1)
+
+            if symbol in level0:
 
                 df = data[symbol].copy()
 
-            elif symbol in data.columns.get_level_values(1):
+            elif symbol in level1:
 
                 df = data.xs(
                     symbol,
@@ -189,6 +268,15 @@ def extract_symbol_data(data, symbol):
 
             df = data.copy()
 
+        # -------------------------------------------------
+        # تنظيف أسماء الأعمدة
+        # -------------------------------------------------
+
+        df.columns = [
+            str(c).strip()
+            for c in df.columns
+        ]
+
         required = [
             "Open",
             "High",
@@ -197,15 +285,29 @@ def extract_symbol_data(data, symbol):
             "Volume"
         ]
 
-        available = [
-            c for c in required
-            if c in df.columns
-        ]
+        if not all(
+            c in df.columns
+            for c in required
+        ):
 
-        if len(available) < 5:
             return pd.DataFrame()
 
-        df = df[available].copy()
+        df = df[required].copy()
+
+        # -------------------------------------------------
+        # تحويل البيانات لأرقام
+        # -------------------------------------------------
+
+        for col in required:
+
+            df[col] = pd.to_numeric(
+                df[col],
+                errors="coerce"
+            )
+
+        # -------------------------------------------------
+        # إزالة القيم غير الصحيحة
+        # -------------------------------------------------
 
         df = df.replace(
             [np.inf, -np.inf],
@@ -213,10 +315,35 @@ def extract_symbol_data(data, symbol):
         )
 
         df = df.dropna(
-            subset=["Close"]
+            subset=[
+                "Open",
+                "High",
+                "Low",
+                "Close"
+            ]
         )
 
+        # Volume ممكن يكون صفر
+        df["Volume"] = df["Volume"].fillna(0)
+
+        # -------------------------------------------------
+        # Validation
+        # -------------------------------------------------
+
+        df = df[
+            (df["High"] >= df["Low"]) &
+            (df["Close"] > 0) &
+            (df["Open"] > 0)
+        ]
+
         df = df.sort_index()
+
+        # إزالة التواريخ المكررة
+        df = df[
+            ~df.index.duplicated(
+                keep="last"
+            )
+        ]
 
         return df
 
@@ -226,110 +353,70 @@ def extract_symbol_data(data, symbol):
 
 
 # =========================================================
-# 📈 المؤشرات الفنية
+# 🧪 DATA QUALITY
 # =========================================================
 
-def add_indicators(df):
+def calculate_data_quality(df):
 
-    df = df.copy()
+    if df is None or df.empty:
 
+        return {
+            "quality": 0.0,
+            "missing": 100.0,
+            "rows": 0
+        }
+
+    required = [
+        "Open",
+        "High",
+        "Low",
+        "Close",
+        "Volume"
+    ]
+
+    total_cells = (
+        len(df) *
+        len(required)
+    )
+
+    missing_cells = int(
+        df[required]
+        .isna()
+        .sum()
+        .sum()
+    )
+
+    missing_pct = (
+        missing_cells /
+        total_cells *
+        100
+        if total_cells > 0
+        else 100
+    )
+
+    quality = max(
+        0.0,
+        100.0 - missing_pct
+    )
+
+    # خصم بسيط لو عدد الشموع قليل
     if len(df) < 50:
-        return df
 
-    close = df["Close"]
-    high = df["High"]
-    low = df["Low"]
-    vol = df["Volume"]
-
-    # -----------------------------------------------------
-    # EMA
-    # -----------------------------------------------------
-
-    df["ema20"] = close.ewm(
-        span=20,
-        adjust=False
-    ).mean()
-
-    df["ema50"] = close.ewm(
-        span=50,
-        adjust=False
-    ).mean()
-
-    df["ema200"] = close.ewm(
-        span=200,
-        adjust=False
-    ).mean()
-
-    # -----------------------------------------------------
-    # RSI
-    # -----------------------------------------------------
-
-    df["rsi"] = ta.momentum.RSIIndicator(
-        close=close,
-        window=14
-    ).rsi()
-
-    # -----------------------------------------------------
-    # MACD
-    # -----------------------------------------------------
-
-    macd_obj = ta.trend.MACD(
-        close=close,
-        window_slow=26,
-        window_fast=12,
-        window_sign=9
-    )
-
-    df["macd"] = macd_obj.macd()
-
-    df["macd_signal"] = (
-        macd_obj.macd_signal()
-    )
-
-    df["macd_hist"] = (
-        macd_obj.macd_diff()
-    )
-
-    # -----------------------------------------------------
-    # Volume
-    # -----------------------------------------------------
-
-    df["vol_ma"] = vol.rolling(
-        20
-    ).mean()
-
-    # -----------------------------------------------------
-    # Support / Resistance
-    # -----------------------------------------------------
-
-    df["support"] = low.rolling(
-        20
-    ).min()
-
-    df["resistance"] = high.rolling(
-        20
-    ).max()
-
-    # -----------------------------------------------------
-    # OBV
-    # -----------------------------------------------------
-
-    try:
-
-        df["obv"] = (
-            ta.volume
-            .OnBalanceVolumeIndicator(
-                close=close,
-                volume=vol
-            )
-            .on_balance_volume()
+        quality *= (
+            len(df) / 50
         )
 
-    except Exception:
-
-        df["obv"] = np.nan
-
-    return df
+    return {
+        "quality": round(
+            quality,
+            2
+        ),
+        "missing": round(
+            missing_pct,
+            2
+        ),
+        "rows": len(df)
+    }
 
 
 # =========================================================
@@ -353,7 +440,8 @@ def atr(df, period=14):
 
     return tr.ewm(
         alpha=1 / period,
-        adjust=False
+        adjust=False,
+        min_periods=period
     ).mean()
 
 
@@ -396,7 +484,8 @@ def adx(df, period=14):
 
     atr_val = tr.ewm(
         alpha=1 / period,
-        adjust=False
+        adjust=False,
+        min_periods=period
     ).mean()
 
     plus_di = (
@@ -406,7 +495,8 @@ def adx(df, period=14):
             index=df.index
         ).ewm(
             alpha=1 / period,
-            adjust=False
+            adjust=False,
+            min_periods=period
         ).mean()
         /
         (atr_val + 1e-9)
@@ -419,7 +509,8 @@ def adx(df, period=14):
             index=df.index
         ).ewm(
             alpha=1 / period,
-            adjust=False
+            adjust=False,
+            min_periods=period
         ).mean()
         /
         (atr_val + 1e-9)
@@ -440,12 +531,385 @@ def adx(df, period=14):
 
     return dx.ewm(
         alpha=1 / period,
-        adjust=False
+        adjust=False,
+        min_periods=period
     ).mean()
 
 
 # =========================================================
-# 🧠 تحديد اتجاه السهم
+# 📈 TECHNICAL ENGINE
+# =========================================================
+
+def add_indicators(df):
+
+    df = df.copy()
+
+    if len(df) < 30:
+
+        return df
+
+    close = df["Close"]
+    high = df["High"]
+    low = df["Low"]
+    vol = df["Volume"]
+
+    # =====================================================
+    # EMA
+    # =====================================================
+
+    df["ema20"] = close.ewm(
+        span=20,
+        adjust=False
+    ).mean()
+
+    df["ema50"] = close.ewm(
+        span=50,
+        adjust=False
+    ).mean()
+
+    df["ema200"] = close.ewm(
+        span=200,
+        adjust=False
+    ).mean()
+
+    # =====================================================
+    # RSI
+    # =====================================================
+
+    df["rsi"] = ta.momentum.RSIIndicator(
+        close=close,
+        window=14
+    ).rsi()
+
+    # =====================================================
+    # MACD
+    # =====================================================
+
+    macd_obj = ta.trend.MACD(
+        close=close,
+        window_slow=26,
+        window_fast=12,
+        window_sign=9
+    )
+
+    df["macd"] = macd_obj.macd()
+
+    df["macd_signal"] = (
+        macd_obj.macd_signal()
+    )
+
+    df["macd_hist"] = (
+        macd_obj.macd_diff()
+    )
+
+    # =====================================================
+    # Volume MA
+    # =====================================================
+
+    df["vol_ma"] = vol.rolling(
+        20,
+        min_periods=10
+    ).mean()
+
+    # =====================================================
+    # Volume Ratio
+    # =====================================================
+
+    df["volume_ratio"] = (
+        vol /
+        (df["vol_ma"] + 1e-9)
+    )
+
+    # =====================================================
+    # OBV
+    # =====================================================
+
+    try:
+
+        df["obv"] = (
+            ta.volume
+            .OnBalanceVolumeIndicator(
+                close=close,
+                volume=vol
+            )
+            .on_balance_volume()
+        )
+
+        df["obv_ma"] = (
+            df["obv"]
+            .rolling(
+                20,
+                min_periods=10
+            )
+            .mean()
+        )
+
+    except Exception:
+
+        df["obv"] = np.nan
+        df["obv_ma"] = np.nan
+
+    # =====================================================
+    # MFI
+    # =====================================================
+
+    try:
+
+        df["mfi"] = (
+            ta.volume
+            .MFIIndicator(
+                high=high,
+                low=low,
+                close=close,
+                volume=vol,
+                window=14
+            )
+            .money_flow_index()
+        )
+
+    except Exception:
+
+        df["mfi"] = np.nan
+
+    # =====================================================
+    # Stochastic RSI
+    # =====================================================
+
+    try:
+
+        stoch = ta.momentum.StochRSIIndicator(
+            close=close,
+            window=14,
+            smooth1=3,
+            smooth2=3
+        )
+
+        df["stoch_rsi"] = (
+            stoch.stochrsi()
+        )
+
+        df["stoch_rsi_k"] = (
+            stoch.stochrsi_k()
+        )
+
+        df["stoch_rsi_d"] = (
+            stoch.stochrsi_d()
+        )
+
+    except Exception:
+
+        df["stoch_rsi"] = np.nan
+        df["stoch_rsi_k"] = np.nan
+        df["stoch_rsi_d"] = np.nan
+
+    # =====================================================
+    # VWAP
+    # =====================================================
+
+    try:
+
+        typical_price = (
+            high +
+            low +
+            close
+        ) / 3
+
+        cumulative_volume = (
+            vol.cumsum()
+        )
+
+        df["vwap"] = (
+            (
+                typical_price *
+                vol
+            ).cumsum()
+            /
+            (
+                cumulative_volume +
+                1e-9
+            )
+        )
+
+    except Exception:
+
+        df["vwap"] = np.nan
+
+    # =====================================================
+    # ATR
+    # =====================================================
+
+    df["atr"] = atr(
+        df,
+        14
+    )
+
+    df["atr_pct"] = (
+        df["atr"] /
+        (close + 1e-9)
+    )
+
+    # =====================================================
+    # ADX
+    # =====================================================
+
+    df["adx"] = adx(
+        df,
+        14
+    )
+
+    # =====================================================
+    # Support / Resistance
+    # =====================================================
+
+    df["support"] = (
+        low
+        .rolling(
+            20,
+            min_periods=10
+        )
+        .min()
+    )
+
+    df["resistance"] = (
+        high
+        .rolling(
+            20,
+            min_periods=10
+        )
+        .max()
+    )
+
+    # =====================================================
+    # Fibonacci
+    # =====================================================
+
+    swing_high = (
+        high
+        .rolling(
+            60,
+            min_periods=20
+        )
+        .max()
+    )
+
+    swing_low = (
+        low
+        .rolling(
+            60,
+            min_periods=20
+        )
+        .min()
+    )
+
+    fib_range = (
+        swing_high -
+        swing_low
+    )
+
+    df["fib_236"] = (
+        swing_high -
+        fib_range * 0.236
+    )
+
+    df["fib_382"] = (
+        swing_high -
+        fib_range * 0.382
+    )
+
+    df["fib_500"] = (
+        swing_high -
+        fib_range * 0.500
+    )
+
+    df["fib_618"] = (
+        swing_high -
+        fib_range * 0.618
+    )
+
+    df["fib_786"] = (
+        swing_high -
+        fib_range * 0.786
+    )
+
+    # =====================================================
+    # Trend Slope
+    # =====================================================
+
+    df["ema20_slope"] = (
+        df["ema20"] -
+        df["ema20"].shift(5)
+    ) / (
+        df["Close"] + 1e-9
+    )
+
+    df["ema50_slope"] = (
+        df["ema50"] -
+        df["ema50"].shift(5)
+    ) / (
+        df["Close"] + 1e-9
+    )
+
+    # =====================================================
+    # Breakout
+    # =====================================================
+
+    previous_resistance = (
+        high
+        .rolling(
+            20,
+            min_periods=10
+        )
+        .max()
+        .shift(1)
+    )
+
+    df["breakout"] = (
+        (
+            close >
+            previous_resistance
+        ) &
+        (
+            df["volume_ratio"] >= 1.2
+        )
+    )
+
+    # =====================================================
+    # Pullback
+    # =====================================================
+
+    distance_ema20 = (
+        abs(
+            close -
+            df["ema20"]
+        ) /
+        (close + 1e-9)
+    )
+
+    distance_ema50 = (
+        abs(
+            close -
+            df["ema50"]
+        ) /
+        (close + 1e-9)
+    )
+
+    df["pullback"] = (
+        (
+            distance_ema20 <= 0.025
+        ) |
+        (
+            distance_ema50 <= 0.035
+        )
+    ) & (
+        close >=
+        df["ema50"] * 0.97
+    )
+
+    return df
+
+
+# =========================================================
+# 🧠 MARKET REGIME
 # =========================================================
 
 def market_regime(last):
@@ -458,21 +922,27 @@ def market_regime(last):
     if last["ema20"] > last["ema50"]:
         score += 1
 
-    if last["macd"] > 0:
+    if last["ema50"] > last["ema200"]:
+        score += 1
+
+    if last["macd"] > last["macd_signal"]:
         score += 1
 
     if last["rsi"] > 50:
         score += 1
 
-    if score >= 4:
+    if last["adx"] > 20:
+        score += 1
+
+    if score >= 6:
 
         return "🚀 قوي جداً"
 
-    elif score == 3:
+    elif score >= 4:
 
         return "🟢 صعود"
 
-    elif score == 2:
+    elif score >= 3:
 
         return "🟡 محايد"
 
@@ -482,50 +952,575 @@ def market_regime(last):
 
 
 # =========================================================
-# 🧠 محرك الثقة
+# 📊 TREND ALIGNMENT SCORE
+# =========================================================
+
+def timeframe_score(df):
+
+    if df is None or df.empty:
+
+        return 0
+
+    last = df.iloc[-1]
+
+    score = 0
+
+    # السعر مقابل EMA200
+    if last["Close"] > last["ema200"]:
+        score += 25
+
+    # EMA20 / EMA50
+    if last["ema20"] > last["ema50"]:
+        score += 20
+
+    # EMA50 / EMA200
+    if last["ema50"] > last["ema200"]:
+        score += 20
+
+    # MACD
+    if last["macd"] > last["macd_signal"]:
+        score += 15
+
+    # RSI
+    if last["rsi"] > 50:
+        score += 10
+
+    # Trend Slope
+    if last["ema20_slope"] > 0:
+        score += 10
+
+    return score
+
+
+def trend_alignment_score(
+    df_d,
+    df_w,
+    df_m
+):
+
+    daily_score = timeframe_score(
+        df_d
+    )
+
+    weekly_score = timeframe_score(
+        df_w
+    )
+
+    monthly_score = timeframe_score(
+        df_m
+    )
+
+    alignment = (
+        daily_score * 0.40 +
+        weekly_score * 0.35 +
+        monthly_score * 0.25
+    )
+
+    return min(
+        100,
+        max(
+            0,
+            alignment
+        )
+    )
+
+
+# =========================================================
+# 🎯 ENTRY ENGINE
+# =========================================================
+
+def determine_entry(
+    df_d,
+    entry
+):
+
+    last = df_d.iloc[-1]
+
+    support = float(
+        last["support"]
+    )
+
+    resistance = float(
+        last["resistance"]
+    )
+
+    ema20 = float(
+        last["ema20"]
+    )
+
+    ema50 = float(
+        last["ema50"]
+    )
+
+    breakout = bool(
+        last["breakout"]
+    )
+
+    pullback = bool(
+        last["pullback"]
+    )
+
+    volume_ratio = float(
+        last["volume_ratio"]
+    )
+
+    # =====================================================
+    # 1. Breakout
+    # =====================================================
+
+    if (
+        breakout and
+        entry > resistance and
+        volume_ratio >= 1.5
+    ):
+
+        return {
+            "type": "دخول اختراق",
+            "price": entry
+        }
+
+    # =====================================================
+    # 2. Pullback
+    # =====================================================
+
+    if (
+        pullback and
+        ema20 > ema50
+    ):
+
+        pullback_price = max(
+            support,
+            min(
+                ema20,
+                ema50
+            )
+        )
+
+        return {
+            "type": "دخول عند Pullback",
+            "price": pullback_price
+        }
+
+    # =====================================================
+    # 3. Immediate
+    # =====================================================
+
+    if (
+        entry > ema20 and
+        entry > ema50 and
+        last["rsi"] >= 50 and
+        last["macd"] > last["macd_signal"]
+    ):
+
+        return {
+            "type": "دخول فوري",
+            "price": entry
+        }
+
+    # =====================================================
+    # 4. Confirmation
+    # =====================================================
+
+    return {
+        "type": "انتظار تأكيد",
+        "price": entry
+    }
+
+
+# =========================================================
+# 🛡️ RISK ENGINE
+# =========================================================
+
+def calculate_risk_engine(
+    df_d,
+    entry,
+    capital,
+    risk_percent
+):
+
+    last = df_d.iloc[-1]
+
+    support = float(
+        last["support"]
+    )
+
+    resistance = float(
+        last["resistance"]
+    )
+
+    atr_val = float(
+        last["atr"]
+    )
+
+    if not np.isfinite(atr_val):
+        atr_val = entry * 0.03
+
+    # =====================================================
+    # تحديد اتجاه الصفقة
+    # =====================================================
+
+    bullish = (
+        last["ema20"] >
+        last["ema50"]
+    )
+
+    # =====================================================
+    # Stop Loss
+    # =====================================================
+
+    if bullish:
+
+        atr_stop = (
+            entry -
+            atr_val * 1.5
+        )
+
+        support_stop = (
+            support -
+            atr_val * 0.25
+        )
+
+        candidates = [
+            x for x in [
+                atr_stop,
+                support_stop
+            ]
+            if x > 0 and x < entry
+        ]
+
+        if candidates:
+
+            stop = max(
+                candidates
+            )
+
+        else:
+
+            stop = (
+                entry -
+                atr_val * 1.5
+            )
+
+    else:
+
+        stop = (
+            entry -
+            atr_val * 1.2
+        )
+
+        if stop <= 0:
+
+            stop = (
+                entry * 0.95
+            )
+
+    # =====================================================
+    # Risk %
+    # =====================================================
+
+    risk_per_share = (
+        entry -
+        stop
+    )
+
+    if risk_per_share <= 0:
+
+        risk_per_share = (
+            entry * 0.03
+        )
+
+        stop = (
+            entry -
+            risk_per_share
+        )
+
+    risk_pct_actual = (
+        risk_per_share /
+        entry
+    )
+
+    # =====================================================
+    # Position Size
+    # =====================================================
+
+    allowed_loss = (
+        capital *
+        risk_percent /
+        100
+    )
+
+    position_size = (
+        allowed_loss /
+        risk_per_share
+    )
+
+    position_value = (
+        position_size *
+        entry
+    )
+
+    # =====================================================
+    # TP1
+    # =====================================================
+
+    atr_tp1 = (
+        entry +
+        atr_val * 1.0
+    )
+
+    resistance_tp1 = (
+        resistance
+        if resistance > entry
+        else atr_tp1
+    )
+
+    tp1 = min(
+        resistance_tp1,
+        atr_tp1
+    )
+
+    if tp1 <= entry:
+
+        tp1 = (
+            entry +
+            atr_val
+        )
+
+    # =====================================================
+    # TP2
+    # =====================================================
+
+    tp2 = (
+        entry +
+        atr_val * 2.0
+    )
+
+    if resistance > tp1:
+
+        tp2 = max(
+            tp2,
+            resistance
+        )
+
+    # =====================================================
+    # TP3
+    # =====================================================
+
+    tp3 = (
+        entry +
+        atr_val * 3.5
+    )
+
+    # =====================================================
+    # Risk / Reward
+    # =====================================================
+
+    rr1 = (
+        tp1 -
+        entry
+    ) / (
+        risk_per_share +
+        1e-9
+    )
+
+    rr2 = (
+        tp2 -
+        entry
+    ) / (
+        risk_per_share +
+        1e-9
+    )
+
+    rr3 = (
+        tp3 -
+        entry
+    ) / (
+        risk_per_share +
+        1e-9
+    )
+
+    return {
+
+        "entry": float(entry),
+
+        "stop": float(stop),
+
+        "tp1": float(tp1),
+
+        "tp2": float(tp2),
+
+        "tp3": float(tp3),
+
+        "risk_pct": float(
+            risk_pct_actual * 100
+        ),
+
+        "rr1": float(rr1),
+
+        "rr2": float(rr2),
+
+        "rr3": float(rr3),
+
+        "position_size": float(
+            position_size
+        ),
+
+        "position_value": float(
+            position_value
+        )
+    }
+
+
+# =========================================================
+# 🧠 CONFIDENCE ENGINE
 # =========================================================
 
 def ai_confidence(
     last_d,
     last_w,
     last_m,
-    adx_val,
-    atr_val
+    alignment,
+    data_quality
 ):
 
     score = 0
+    total = 10
 
-    total = 8
-
+    # Daily trend
     if last_d["Close"] > last_d["ema200"]:
         score += 1
 
+    # Weekly trend
     if last_w["Close"] > last_w["ema200"]:
         score += 1
 
+    # Monthly trend
     if last_m["Close"] > last_m["ema200"]:
         score += 1
 
-    if last_d["macd"] > 0:
+    # MACD
+    if last_d["macd"] > last_d["macd_signal"]:
         score += 1
 
-    if 45 < last_d["rsi"] < 65:
+    # RSI healthy
+    if 45 < last_d["rsi"] < 70:
         score += 1
 
-    if last_d["Volume"] > last_d["vol_ma"]:
+    # Volume
+    if last_d["volume_ratio"] > 1:
         score += 1
 
-    if adx_val > 20:
+    # ADX
+    if last_d["adx"] > 20:
         score += 1
 
-    if (
-        atr_val /
-        last_d["Close"]
-    ) < 0.05:
+    # MFI
+    if 40 < last_d["mfi"] < 80:
+        score += 1
 
+    # Trend Alignment
+    if alignment >= 60:
+        score += 1
+
+    # Data Quality
+    if data_quality >= 90:
         score += 1
 
     return score / total
+
+
+# =========================================================
+# 📊 REALISTIC PROBABILITY MODEL
+# =========================================================
+
+def estimate_probabilities(
+    base_conf,
+    rr1,
+    rr2,
+    rr3,
+    alignment,
+    adx_val
+):
+
+    # ده Confidence Model وليس Backtest Probability
+    # يتم إبقاؤه محافظًا ولا يتم تسميته احتمال إحصائي حقيقي
+
+    trend_factor = (
+        alignment /
+        100
+    )
+
+    momentum_factor = min(
+        1.0,
+        max(
+            0.5,
+            adx_val / 35
+        )
+    )
+
+    tp1 = (
+        base_conf *
+        0.65 +
+        trend_factor *
+        0.20 +
+        momentum_factor *
+        0.15
+    )
+
+    # تحسين حسب R/R
+    if rr1 >= 2:
+        tp1 += 0.05
+
+    if rr1 < 1.2:
+        tp1 -= 0.10
+
+    tp1 = min(
+        0.90,
+        max(
+            0.20,
+            tp1
+        )
+    )
+
+    tp2 = (
+        tp1 *
+        0.78
+    )
+
+    if rr2 < 1.5:
+
+        tp2 *= 0.90
+
+    tp2 = min(
+        0.82,
+        max(
+            0.15,
+            tp2
+        )
+    )
+
+    tp3 = (
+        tp2 *
+        0.72
+    )
+
+    if rr3 < 2:
+
+        tp3 *= 0.85
+
+    tp3 = min(
+        0.72,
+        max(
+            0.10,
+            tp3
+        )
+    )
+
+    return (
+        tp1,
+        tp2,
+        tp3
+    )
 
 
 # =========================================================
@@ -535,54 +1530,103 @@ def ai_confidence(
 def analyze(
     df_d,
     df_w,
-    df_m
+    df_m,
+    capital,
+    risk_percent
 ):
 
+    # =====================================================
     # إضافة المؤشرات
+    # =====================================================
 
     df_d = add_indicators(df_d)
     df_w = add_indicators(df_w)
     df_m = add_indicators(df_m)
 
-    # -----------------------------------------------------
+    # =====================================================
     # التأكد من البيانات
-    # -----------------------------------------------------
+    # =====================================================
 
-    if (
-        len(df_d) < 50 or
-        len(df_w) < 50 or
-        len(df_m) < 50
-    ):
+    if len(df_d) < MIN_DAILY_ROWS:
 
         raise ValueError(
-            "بيانات غير كافية"
+            "بيانات يومية غير كافية"
         )
 
-    # -----------------------------------------------------
+    if len(df_w) < MIN_WEEKLY_ROWS:
+
+        raise ValueError(
+            "بيانات أسبوعية غير كافية"
+        )
+
+    if len(df_m) < MIN_MONTHLY_ROWS:
+
+        raise ValueError(
+            "بيانات شهرية غير كافية"
+        )
+
+    # =====================================================
+    # Data Quality
+    # =====================================================
+
+    quality_d = calculate_data_quality(
+        df_d
+    )
+
+    quality_w = calculate_data_quality(
+        df_w
+    )
+
+    quality_m = calculate_data_quality(
+        df_m
+    )
+
+    data_quality = (
+        quality_d["quality"] * 0.50 +
+        quality_w["quality"] * 0.30 +
+        quality_m["quality"] * 0.20
+    )
+
+    # =====================================================
     # تنظيف المؤشرات
-    # -----------------------------------------------------
+    # =====================================================
+
+    required_daily = [
+        "ema200",
+        "rsi",
+        "macd",
+        "macd_signal",
+        "vol_ma",
+        "volume_ratio",
+        "support",
+        "resistance",
+        "atr",
+        "adx",
+        "mfi",
+        "ema20_slope",
+        "ema50_slope"
+    ]
+
+    required_tf = [
+        "ema200",
+        "ema20",
+        "ema50",
+        "macd",
+        "macd_signal",
+        "rsi",
+        "ema20_slope"
+    ]
 
     df_d = df_d.dropna(
-        subset=[
-            "ema200",
-            "rsi",
-            "macd",
-            "vol_ma",
-            "support",
-            "resistance"
-        ]
+        subset=required_daily
     )
 
     df_w = df_w.dropna(
-        subset=[
-            "ema200"
-        ]
+        subset=required_tf
     )
 
     df_m = df_m.dropna(
-        subset=[
-            "ema200"
-        ]
+        subset=required_tf
     )
 
     if (
@@ -595,352 +1639,334 @@ def analyze(
             "المؤشرات غير متاحة"
         )
 
-    # -----------------------------------------------------
+    # =====================================================
     # آخر قراءة
-    # -----------------------------------------------------
+    # =====================================================
 
     last_d = df_d.iloc[-1]
-
     last_w = df_w.iloc[-1]
-
     last_m = df_m.iloc[-1]
 
-    entry = float(
+    market_price = float(
         last_d["Close"]
     )
 
-    if entry <= 0:
+    if market_price <= 0:
 
         raise ValueError(
             "سعر غير صحيح"
         )
 
-    # -----------------------------------------------------
-    # ATR
-    # -----------------------------------------------------
-
-    atr_val = float(
-        atr(df_d).iloc[-1]
-    )
-
-    # -----------------------------------------------------
-    # ADX
-    # -----------------------------------------------------
-
-    adx_val = float(
-        adx(df_d).iloc[-1]
-    )
-
-    if not np.isfinite(
-        atr_val
-    ):
-
-        raise ValueError(
-            "ATR غير صحيح"
-        )
-
-    if not np.isfinite(
-        adx_val
-    ):
-
-        adx_val = 0
-
     # =====================================================
-    # ⭐ التقييم
+    # Trend Alignment
     # =====================================================
 
-    score = 0
+    alignment = trend_alignment_score(
+        df_d,
+        df_w,
+        df_m
+    )
 
-    # الاتجاه اليومي
-
-    if (
-        last_d["Close"] >
-        last_d["ema200"]
-    ):
-
-        score += 15
-
-    # الاتجاه الأسبوعي
-
-    if (
-        last_w["Close"] >
-        last_w["ema200"]
-    ):
-
-        score += 12
-
-    # الاتجاه الشهري
-
-    if (
-        last_m["Close"] >
-        last_m["ema200"]
-    ):
-
-        score += 15
-
-    # RSI
-
-    if (
-        45 <
-        last_d["rsi"] <
-        65
-    ):
-
-        score += 8
-
-    # MACD
-
-    if last_d["macd"] > 0:
-
-        score += 6
-
-    # Volume
-
-    if (
-        last_d["Volume"] >
-        last_d["vol_ma"]
-    ):
-
-        score += 8
-
-    # ADX
-
-    if adx_val > 20:
-
-        score += 10
-
-    # الاتجاه العام
+    # =====================================================
+    # Market Regime
+    # =====================================================
 
     regime = market_regime(
         last_d
     )
 
-    if "قوي" in regime:
+    # =====================================================
+    # Entry Engine
+    # =====================================================
 
-        score += 6
+    entry_info = determine_entry(
+        df_d,
+        market_price
+    )
 
-    # المخاطرة
+    entry = float(
+        entry_info["price"]
+    )
+
+    entry_type = entry_info["type"]
+
+    # =====================================================
+    # Risk Engine
+    # =====================================================
+
+    risk = calculate_risk_engine(
+        df_d,
+        entry,
+        capital,
+        risk_percent
+    )
+
+    stop = risk["stop"]
+
+    tp1 = risk["tp1"]
+    tp2 = risk["tp2"]
+    tp3 = risk["tp3"]
+
+    rr1 = risk["rr1"]
+    rr2 = risk["rr2"]
+    rr3 = risk["rr3"]
 
     volatility = (
-        atr_val /
+        float(last_d["atr"]) /
         entry
     )
 
-    if volatility < 0.05:
+    # =====================================================
+    # ⭐ SCORE من 100
+    # =====================================================
+
+    score = 0.0
+
+    # -----------------------------------------------------
+    # Trend Alignment 30
+    # -----------------------------------------------------
+
+    score += (
+        alignment *
+        0.30
+    )
+
+    # -----------------------------------------------------
+    # RSI 10
+    # -----------------------------------------------------
+
+    rsi = float(
+        last_d["rsi"]
+    )
+
+    if 50 <= rsi <= 65:
+
+        score += 10
+
+    elif 45 <= rsi < 50:
+
+        score += 7
+
+    elif 65 < rsi <= 70:
+
+        score += 7
+
+    elif 35 <= rsi < 45:
+
+        score += 4
+
+    # -----------------------------------------------------
+    # MACD 10
+    # -----------------------------------------------------
+
+    if (
+        last_d["macd"] >
+        last_d["macd_signal"]
+    ):
+
+        score += 10
+
+    elif (
+        last_d["macd_hist"] >
+        0
+    ):
+
+        score += 6
+
+    # -----------------------------------------------------
+    # Volume 10
+    # -----------------------------------------------------
+
+    volume_ratio = float(
+        last_d["volume_ratio"]
+    )
+
+    if volume_ratio >= 2:
+
+        score += 10
+
+    elif volume_ratio >= 1.5:
+
+        score += 8
+
+    elif volume_ratio >= 1.1:
+
+        score += 6
+
+    elif volume_ratio >= 0.8:
+
+        score += 3
+
+    # -----------------------------------------------------
+    # ADX 10
+    # -----------------------------------------------------
+
+    adx_val = float(
+        last_d["adx"]
+    )
+
+    if adx_val >= 30:
+
+        score += 10
+
+    elif adx_val >= 25:
+
+        score += 8
+
+    elif adx_val >= 20:
+
+        score += 6
+
+    elif adx_val >= 15:
+
+        score += 3
+
+    # -----------------------------------------------------
+    # MFI 5
+    # -----------------------------------------------------
+
+    mfi = float(
+        last_d["mfi"]
+    )
+
+    if 50 <= mfi <= 75:
 
         score += 5
 
+    elif 40 <= mfi < 50:
+
+        score += 3
+
+    elif 75 < mfi <= 85:
+
+        score += 3
+
+    # -----------------------------------------------------
+    # Trend Slope 5
+    # -----------------------------------------------------
+
+    if (
+        last_d["ema20_slope"] > 0 and
+        last_d["ema50_slope"] > 0
+    ):
+
+        score += 5
+
+    elif (
+        last_d["ema20_slope"] > 0
+    ):
+
+        score += 3
+
+    # -----------------------------------------------------
+    # Entry Quality 10
+    # -----------------------------------------------------
+
+    if entry_type == "دخول فوري":
+
+        score += 7
+
+    elif entry_type == "دخول عند Pullback":
+
+        score += 10
+
+    elif entry_type == "دخول اختراق":
+
+        score += 9
+
     else:
+
+        score += 3
+
+    # -----------------------------------------------------
+    # Risk / Reward 10
+    # -----------------------------------------------------
+
+    if rr1 >= 2:
+
+        score += 10
+
+    elif rr1 >= 1.5:
+
+        score += 7
+
+    elif rr1 >= 1.2:
+
+        score += 4
+
+    # -----------------------------------------------------
+    # Data Quality adjustment
+    # -----------------------------------------------------
+
+    if data_quality >= 95:
+
+        score += 5
+
+    elif data_quality >= 90:
+
+        score += 3
+
+    elif data_quality < 75:
 
         score -= 5
 
-    # =====================================================
-    # 🎯 الأهداف
-    # =====================================================
+    # -----------------------------------------------------
+    # الحد النهائي
+    # -----------------------------------------------------
 
-    support = float(
-        last_d["support"]
-    )
-
-    resistance = float(
-        last_d["resistance"]
-    )
-
-    ema_trend = (
-        float(last_d["ema20"]) -
-        float(last_d["ema200"])
-    ) / entry
-
-    adx_strength = min(
-        1.0,
+    score = min(
+        100,
         max(
-            0.0,
-            adx_val / 100
+            0,
+            score
         )
     )
 
-    # -----------------------------------------------------
-    # الهدف الأول
-    # -----------------------------------------------------
-
-    if ema_trend > 0:
-
-        tp1 = (
-            entry +
-            atr_val * 0.8
-        )
-
-    else:
-
-        tp1 = (
-            entry -
-            atr_val * 0.8
-        )
-
-    # -----------------------------------------------------
-    # الهدف الثاني
-    # -----------------------------------------------------
-
-    tp2_multiplier = (
-        1.8 +
-        adx_strength * 2
-    )
-
-    if ema_trend > 0:
-
-        tp2 = (
-            entry +
-            atr_val *
-            tp2_multiplier
-        )
-
-    else:
-
-        tp2 = (
-            entry -
-            atr_val *
-            tp2_multiplier
-        )
-
-    # -----------------------------------------------------
-    # الهدف الثالث
-    # -----------------------------------------------------
-
-    trend_multiplier = (
-        3 +
-        adx_strength * 4 +
-        abs(ema_trend) * 10
-    )
-
-    if ema_trend > 0:
-
-        tp3 = max(
-            resistance,
-            entry +
-            atr_val *
-            trend_multiplier
-        )
-
-    else:
-
-        tp3 = min(
-            support,
-            entry -
-            atr_val *
-            trend_multiplier
-        )
-
     # =====================================================
-    # 🛑 وقف الخسارة
-    # =====================================================
-
-    if ema_trend > 0:
-
-        stop = (
-            entry -
-            atr_val *
-            (
-                1.2 +
-                volatility * 5
-            )
-        )
-
-    else:
-
-        stop = (
-            entry +
-            atr_val *
-            (
-                1.2 +
-                volatility * 5
-            )
-        )
-
-    # =====================================================
-    # ⏱️ المدة المتوقعة
-    # =====================================================
-
-    if volatility > 0.05:
-
-        time_est = "1 - 3 أسابيع"
-
-    elif volatility > 0.02:
-
-        time_est = "3 - 8 أسابيع"
-
-    else:
-
-        time_est = "2 - 4 شهور"
-
-    # =====================================================
-    # 🧠 الاحتمالات
+    # Confidence
     # =====================================================
 
     base_conf = ai_confidence(
         last_d,
         last_w,
         last_m,
-        adx_val,
-        atr_val
-    )
-
-    momentum_factor = min(
-        1.2,
-        max(
-            0.5,
-            adx_val / 25
-        )
-    )
-
-    trend_factor = min(
-        1.2,
-        1 +
-        abs(ema_trend) * 5
-    )
-
-    vol_factor = (
-        1 -
-        min(
-            0.5,
-            volatility
-        )
-    )
-
-    tp1_prob = min(
-        0.95,
-        base_conf *
-        momentum_factor *
-        trend_factor *
-        vol_factor
-    )
-
-    tp2_prob = min(
-        0.90,
-        tp1_prob *
-        (
-            0.85 +
-            adx_strength
-        )
-    )
-
-    tp3_prob = min(
-        0.85,
-        tp2_prob *
-        (
-            0.75 +
-            abs(ema_trend) * 3
-        )
+        alignment,
+        data_quality
     )
 
     # =====================================================
-    # 🚦 الإشارة
+    # تقدير احتمالات محافظة
     # =====================================================
 
-    if score > 85:
+    (
+        tp1_prob,
+        tp2_prob,
+        tp3_prob
+    ) = estimate_probabilities(
+        base_conf,
+        rr1,
+        rr2,
+        rr3,
+        alignment,
+        adx_val
+    )
+
+    # =====================================================
+    # Signal
+    # =====================================================
+
+    if (
+        score >= 85 and
+        rr1 >= 1.5 and
+        alignment >= 65
+    ):
 
         signal = "🔥 قوي جداً"
 
-    elif score > 70:
+    elif (
+        score >= 70 and
+        rr1 >= 1.3
+    ):
 
         signal = "🟢 قوي"
 
@@ -953,7 +1979,27 @@ def analyze(
         signal = "⚠️ متابعة"
 
     # =====================================================
-    # 📦 النتيجة
+    # المدة المتوقعة
+    # =====================================================
+
+    if volatility > 0.07:
+
+        time_est = "1 - 3 أسابيع"
+
+    elif volatility > 0.04:
+
+        time_est = "3 - 8 أسابيع"
+
+    elif volatility > 0.02:
+
+        time_est = "1 - 3 شهور"
+
+    else:
+
+        time_est = "2 - 4 شهور"
+
+    # =====================================================
+    # النتيجة
     # =====================================================
 
     return {
@@ -1018,11 +2064,58 @@ def analyze(
         ),
 
         "مؤشر RSI": round(
-            float(last_d["rsi"]),
+            rsi,
             2
         ),
 
-        "المدة المتوقعة": time_est
+        "المدة المتوقعة": time_est,
+
+        # =================================================
+        # معلومات داخلية للمحرك
+        # لا يتم عرضها في الجداول للحفاظ على شكلها
+        # =================================================
+
+        "_entry_type": entry_type,
+
+        "_trend_alignment": round(
+            alignment,
+            2
+        ),
+
+        "_data_quality": round(
+            data_quality,
+            2
+        ),
+
+        "_risk_pct": round(
+            risk["risk_pct"],
+            2
+        ),
+
+        "_rr1": round(
+            rr1,
+            2
+        ),
+
+        "_rr2": round(
+            rr2,
+            2
+        ),
+
+        "_rr3": round(
+            rr3,
+            2
+        ),
+
+        "_position_size": round(
+            risk["position_size"],
+            2
+        ),
+
+        "_position_value": round(
+            risk["position_value"],
+            2
+        )
     }
 
 
@@ -1034,7 +2127,9 @@ def process(
     symbol,
     daily,
     weekly,
-    monthly
+    monthly,
+    capital,
+    risk_percent
 ):
 
     clean_symbol = symbol.replace(
@@ -1043,6 +2138,10 @@ def process(
     )
 
     try:
+
+        # =================================================
+        # استخراج البيانات
+        # =================================================
 
         df_d = extract_symbol_data(
             daily,
@@ -1059,11 +2158,22 @@ def process(
             symbol
         )
 
+        # =================================================
+        # Validation
+        # =================================================
+
         if df_d.empty:
 
             return {
                 "السهم": clean_symbol,
                 "الحالة": "❌ لا توجد بيانات يومية"
+            }
+
+        if len(df_d) < MIN_DAILY_ROWS:
+
+            return {
+                "السهم": clean_symbol,
+                "الحالة": "❌ بيانات يومية غير كافية"
             }
 
         if df_w.empty:
@@ -1073,6 +2183,13 @@ def process(
                 "الحالة": "❌ لا توجد بيانات أسبوعية"
             }
 
+        if len(df_w) < MIN_WEEKLY_ROWS:
+
+            return {
+                "السهم": clean_symbol,
+                "الحالة": "❌ بيانات أسبوعية غير كافية"
+            }
+
         if df_m.empty:
 
             return {
@@ -1080,10 +2197,23 @@ def process(
                 "الحالة": "❌ لا توجد بيانات شهرية"
             }
 
+        if len(df_m) < MIN_MONTHLY_ROWS:
+
+            return {
+                "السهم": clean_symbol,
+                "الحالة": "❌ بيانات شهرية غير كافية"
+            }
+
+        # =================================================
+        # التحليل
+        # =================================================
+
         result = analyze(
             df_d,
             df_w,
-            df_m
+            df_m,
+            capital,
+            risk_percent
         )
 
         result["السهم"] = clean_symbol
@@ -1109,9 +2239,9 @@ if st.button(
     use_container_width=True
 ):
 
-    # -----------------------------------------------------
+    # =====================================================
     # الحالة
-    # -----------------------------------------------------
+    # =====================================================
 
     st.info(
         f"📡 جاري فحص {TOTAL_STOCKS} سهم..."
@@ -1178,6 +2308,80 @@ if st.button(
     )
 
     # =====================================================
+    # 📊 فحص Data Engine
+    # =====================================================
+
+    status_text.info(
+        "🔍 جاري فحص جودة البيانات والتغطية..."
+    )
+
+    data_engine_stats = []
+
+    for symbol in EGX100:
+
+        df_d_check = extract_symbol_data(
+            daily,
+            symbol
+        )
+
+        df_w_check = extract_symbol_data(
+            weekly,
+            symbol
+        )
+
+        df_m_check = extract_symbol_data(
+            monthly,
+            symbol
+        )
+
+        qd = calculate_data_quality(
+            df_d_check
+        )
+
+        qw = calculate_data_quality(
+            df_w_check
+        )
+
+        qm = calculate_data_quality(
+            df_m_check
+        )
+
+        quality = (
+            qd["quality"] * 0.50 +
+            qw["quality"] * 0.30 +
+            qm["quality"] * 0.20
+        )
+
+        data_engine_stats.append({
+
+            "symbol": symbol,
+
+            "daily_rows":
+                qd["rows"],
+
+            "weekly_rows":
+                qw["rows"],
+
+            "monthly_rows":
+                qm["rows"],
+
+            "daily_quality":
+                qd["quality"],
+
+            "weekly_quality":
+                qw["quality"],
+
+            "monthly_quality":
+                qm["quality"],
+
+            "data_quality":
+                round(
+                    quality,
+                    2
+                )
+        })
+
+    # =====================================================
     # 🧠 التحليل
     # =====================================================
 
@@ -1192,12 +2396,15 @@ if st.button(
     ) as executor:
 
         futures = {
+
             executor.submit(
                 process,
                 symbol,
                 daily,
                 weekly,
-                monthly
+                monthly,
+                capital,
+                risk_percent
             ): symbol
 
             for symbol in EGX100
@@ -1296,6 +2503,53 @@ if st.button(
     )
 
     # =====================================================
+    # 📊 Data Engine Quality
+    # =====================================================
+
+    stats_df = pd.DataFrame(
+        data_engine_stats
+    )
+
+    if not stats_df.empty:
+
+        avg_quality = float(
+            stats_df[
+                "data_quality"
+            ].mean()
+        )
+
+        daily_coverage = float(
+            (
+                stats_df[
+                    "daily_rows"
+                ] >= MIN_DAILY_ROWS
+            ).mean() * 100
+        )
+
+        weekly_coverage = float(
+            (
+                stats_df[
+                    "weekly_rows"
+                ] >= MIN_WEEKLY_ROWS
+            ).mean() * 100
+        )
+
+        monthly_coverage = float(
+            (
+                stats_df[
+                    "monthly_rows"
+                ] >= MIN_MONTHLY_ROWS
+            ).mean() * 100
+        )
+
+    else:
+
+        avg_quality = 0
+        daily_coverage = 0
+        weekly_coverage = 0
+        monthly_coverage = 0
+
+    # =====================================================
     # 📊 مؤشرات عامة
     # =====================================================
 
@@ -1326,6 +2580,36 @@ if st.button(
     )
 
     # =====================================================
+    # 📡 Data Engine Quality
+    # =====================================================
+
+    st.subheader(
+        "📡 جودة البيانات"
+    )
+
+    q1, q2, q3, q4 = st.columns(4)
+
+    q1.metric(
+        "⭐ جودة البيانات",
+        f"{avg_quality:.1f}%"
+    )
+
+    q2.metric(
+        "📅 تغطية Daily",
+        f"{daily_coverage:.1f}%"
+    )
+
+    q3.metric(
+        "📆 تغطية Weekly",
+        f"{weekly_coverage:.1f}%"
+    )
+
+    q4.metric(
+        "🗓️ تغطية Monthly",
+        f"{monthly_coverage:.1f}%"
+    )
+
+    # =====================================================
     # 📈 الأسهم الناجحة
     # =====================================================
 
@@ -1336,7 +2620,9 @@ if st.button(
 
     if not df_ok.empty:
 
+        # =================================================
         # ترتيب حسب التقييم
+        # =================================================
 
         df_ok = df_ok.sort_values(
             "التقييم",
@@ -1354,6 +2640,11 @@ if st.button(
         top_df = df_ok.head(
             top_n
         ).copy()
+
+        # =================================================
+        # مهم:
+        # نفس أعمدة الجدول القديمة بالضبط
+        # =================================================
 
         preferred_cols = [
 
@@ -1459,7 +2750,9 @@ if st.button(
         # =================================================
 
         csv_ok = (
-            df_ok
+            df_ok[
+                existing_cols
+            ]
             .to_csv(
                 index=False
             )
@@ -1476,15 +2769,123 @@ if st.button(
             use_container_width=True
         )
 
-    else:
+        # =================================================
+        # 📊 تفاصيل المحرك الداخلي
+        # =================================================
+        # لا تظهر في الجداول الرئيسية للحفاظ على شكلها
 
-        st.error(
-            "❌ لم ينجح أي سهم في التحليل."
-        )
+        with st.expander(
+            "🔬 معلومات المحرك المتقدمة"
+        ):
 
-    # =====================================================
-    # ⚠️ الأسهم الفاشلة
-    # =====================================================
+            internal_cols = [
+                "السهم",
+                "_entry_type",
+                "_trend_alignment",
+                "_data_quality",
+                "_risk_pct",
+                "_rr1",
+                "_rr2",
+                "_rr3",
+                "_position_size",
+                "_position_value"
+            ]
+
+            available_internal = [
+                c for c in internal_cols
+                if c in df_ok.columns
+            ]
+
+            internal_df = (
+                df_ok[
+                    available_internal
+                ]
+                .rename(
+                    columns={
+                        "_entry_type":
+                            "نوع الدخول",
+
+                        "_trend_alignment":
+                            "Trend Alignment",
+
+                        "_data_quality":
+                            "جودة البيانات",
+
+                        "_risk_pct":
+                            "المخاطرة %",
+
+                        "_rr1":
+                            "R/R TP1",
+
+                        "_rr2":
+                            "R/R TP2",
+
+                        "_rr3":
+                            "R/R TP3",
+
+                        "_position_size":
+                            "حجم المركز",
+
+                        "_position_value":
+                            "قيمة المركز"
+                    }
+                )
+            )
+
+            st.dataframe(
+                internal_df,
+                use_container_width=True,
+                hide_index=True
+            )
+
+        # =================================================
+        # 📡 Data Quality Details
+        # =================================================
+
+        with st.expander(
+            "📡 تفاصيل جودة البيانات لكل سهم"
+        ):
+
+            quality_display = (
+                stats_df
+                .rename(
+                    columns={
+                        "symbol":
+                            "السهم",
+
+                        "daily_rows":
+                            "شموع Daily",
+
+                        "weekly_rows":
+                            "شموع Weekly",
+
+                        "monthly_rows":
+                            "شموع Monthly",
+
+                        "daily_quality":
+                            "جودة Daily %",
+
+                        "weekly_quality":
+                            "جودة Weekly %",
+
+                        "monthly_quality":
+                            "جودة Monthly %",
+
+                        "data_quality":
+                            "جودة البيانات %"
+                    }
+                )
+            )
+
+            st.dataframe(
+                quality_display,
+                use_container_width=True,
+                hide_index=True
+            )
+
+        # =================================================
+        # ⚠️ الأسهم الفاشلة
+        # =================================================
 
     df_failed = df_all[
         df_all["الحالة"] !=
@@ -1509,7 +2910,12 @@ if st.button(
         )
 
         csv_failed = (
-            df_failed
+            df_failed[
+                [
+                    "السهم",
+                    "الحالة"
+                ]
+            ]
             .to_csv(
                 index=False
             )
@@ -1541,5 +2947,13 @@ if st.button(
 ❌ فشل: {failed}
 
 📡 نسبة تغطية البيانات: {coverage:.1f}%
+
+⭐ متوسط جودة البيانات: {avg_quality:.1f}%
+
+📅 Daily Coverage: {daily_coverage:.1f}%
+
+📆 Weekly Coverage: {weekly_coverage:.1f}%
+
+🗓️ Monthly Coverage: {monthly_coverage:.1f}%
 """
     )
