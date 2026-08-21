@@ -65,15 +65,23 @@ period_daily = st.sidebar.selectbox(
     index=1
 )
 
+# =========================================================
+# 📅 Weekly
+# =========================================================
+
 period_weekly = st.sidebar.selectbox(
     "📅 فترة البيانات الأسبوعية",
-    ["1y", "2y", "3y", "5y"],
+    ["3y", "5y", "10y", "max"],
     index=1
 )
 
+# =========================================================
+# 📅 Monthly
+# =========================================================
+
 period_monthly = st.sidebar.selectbox(
     "📅 فترة البيانات الشهرية",
-    ["3y", "5y", "10y", "max"],
+    ["10y", "15y", "20y", "max"],
     index=1
 )
 
@@ -151,16 +159,18 @@ st.sidebar.info(
     • ADX
     • الدعم والمقاومة
     • Fibonacci
+    • Fibonacci Extensions
     • Breakout
     • Pullback
     • Trend Slope
     • Trend Alignment
     • Entry Engine
     • Risk Engine
+    • Professional Target Engine
     • التقييم النهائي
     • الدخول
     • وقف الخسارة
-    • 3 أهداف
+    • 4 أهداف
     """
 )
 
@@ -169,8 +179,8 @@ st.sidebar.info(
 # =========================================================
 
 MIN_DAILY_ROWS = 60
-MIN_WEEKLY_ROWS = 60
-MIN_MONTHLY_ROWS = 50
+MIN_WEEKLY_ROWS = 80
+MIN_MONTHLY_ROWS = 36
 
 DOWNLOAD_RETRIES = 3
 DOWNLOAD_RETRY_DELAY = 2
@@ -239,10 +249,6 @@ def extract_symbol_data(data, symbol):
 
             return pd.DataFrame()
 
-        # -------------------------------------------------
-        # MultiIndex
-        # -------------------------------------------------
-
         if isinstance(data.columns, pd.MultiIndex):
 
             level0 = data.columns.get_level_values(0)
@@ -268,10 +274,6 @@ def extract_symbol_data(data, symbol):
 
             df = data.copy()
 
-        # -------------------------------------------------
-        # تنظيف أسماء الأعمدة
-        # -------------------------------------------------
-
         df.columns = [
             str(c).strip()
             for c in df.columns
@@ -294,20 +296,12 @@ def extract_symbol_data(data, symbol):
 
         df = df[required].copy()
 
-        # -------------------------------------------------
-        # تحويل البيانات لأرقام
-        # -------------------------------------------------
-
         for col in required:
 
             df[col] = pd.to_numeric(
                 df[col],
                 errors="coerce"
             )
-
-        # -------------------------------------------------
-        # إزالة القيم غير الصحيحة
-        # -------------------------------------------------
 
         df = df.replace(
             [np.inf, -np.inf],
@@ -323,12 +317,7 @@ def extract_symbol_data(data, symbol):
             ]
         )
 
-        # Volume ممكن يكون صفر
         df["Volume"] = df["Volume"].fillna(0)
-
-        # -------------------------------------------------
-        # Validation
-        # -------------------------------------------------
 
         df = df[
             (df["High"] >= df["Low"]) &
@@ -338,7 +327,6 @@ def extract_symbol_data(data, symbol):
 
         df = df.sort_index()
 
-        # إزالة التواريخ المكررة
         df = df[
             ~df.index.duplicated(
                 keep="last"
@@ -399,7 +387,6 @@ def calculate_data_quality(df):
         100.0 - missing_pct
     )
 
-    # خصم بسيط لو عدد الشموع قليل
     if len(df) < 50:
 
         quality *= (
@@ -567,9 +554,22 @@ def add_indicators(df):
         adjust=False
     ).mean()
 
+    # =====================================================
+    # EMA200
+    # =====================================================
+
+    ema200_min_periods = min(
+        200,
+        max(
+            50,
+            len(df) // 2
+        )
+    )
+
     df["ema200"] = close.ewm(
         span=200,
-        adjust=False
+        adjust=False,
+        min_periods=ema200_min_periods
     ).mean()
 
     # =====================================================
@@ -644,10 +644,17 @@ def add_indicators(df):
             .mean()
         )
 
+        # اتجاه OBV خلال آخر 5 شموع
+        df["obv_slope"] = (
+            df["obv"] -
+            df["obv"].shift(5)
+        )
+
     except Exception:
 
         df["obv"] = np.nan
         df["obv_ma"] = np.nan
+        df["obv_slope"] = np.nan
 
     # =====================================================
     # MFI
@@ -696,11 +703,17 @@ def add_indicators(df):
             stoch.stochrsi_d()
         )
 
+        df["stoch_rsi_k_slope"] = (
+            df["stoch_rsi_k"] -
+            df["stoch_rsi_k"].shift(1)
+        )
+
     except Exception:
 
         df["stoch_rsi"] = np.nan
         df["stoch_rsi_k"] = np.nan
         df["stoch_rsi_d"] = np.nan
+        df["stoch_rsi_k_slope"] = np.nan
 
     # =====================================================
     # VWAP
@@ -730,9 +743,18 @@ def add_indicators(df):
             )
         )
 
+        df["vwap_distance"] = (
+            close -
+            df["vwap"]
+        ) / (
+            close +
+            1e-9
+        )
+
     except Exception:
 
         df["vwap"] = np.nan
+        df["vwap_distance"] = np.nan
 
     # =====================================================
     # ATR
@@ -829,6 +851,49 @@ def add_indicators(df):
     df["fib_786"] = (
         swing_high -
         fib_range * 0.786
+    )
+
+    # =====================================================
+    # Fibonacci Extensions
+    # =====================================================
+
+    df["fib_ext_1272"] = (
+        swing_low +
+        fib_range * 1.272
+    )
+
+    df["fib_ext_1618"] = (
+        swing_low +
+        fib_range * 1.618
+    )
+
+    df["fib_ext_2000"] = (
+        swing_low +
+        fib_range * 2.000
+    )
+
+    # =====================================================
+    # Previous Support / Resistance
+    # =====================================================
+
+    df["previous_support"] = (
+        low
+        .rolling(
+            20,
+            min_periods=10
+        )
+        .min()
+        .shift(1)
+    )
+
+    df["previous_resistance"] = (
+        high
+        .rolling(
+            20,
+            min_periods=10
+        )
+        .max()
+        .shift(1)
     )
 
     # =====================================================
@@ -965,28 +1030,34 @@ def timeframe_score(df):
 
     score = 0
 
-    # السعر مقابل EMA200
-    if last["Close"] > last["ema200"]:
+    if (
+        np.isfinite(last["ema200"]) and
+        last["Close"] > last["ema200"]
+    ):
+
         score += 25
 
-    # EMA20 / EMA50
     if last["ema20"] > last["ema50"]:
+
         score += 20
 
-    # EMA50 / EMA200
-    if last["ema50"] > last["ema200"]:
+    if (
+        np.isfinite(last["ema200"]) and
+        last["ema50"] > last["ema200"]
+    ):
+
         score += 20
 
-    # MACD
     if last["macd"] > last["macd_signal"]:
+
         score += 15
 
-    # RSI
     if last["rsi"] > 50:
+
         score += 10
 
-    # Trend Slope
     if last["ema20_slope"] > 0:
+
         score += 10
 
     return score
@@ -1040,8 +1111,11 @@ def determine_entry(
         last["support"]
     )
 
-    resistance = float(
-        last["resistance"]
+    previous_resistance = float(
+        last.get(
+            "previous_resistance",
+            np.nan
+        )
     )
 
     ema20 = float(
@@ -1053,7 +1127,10 @@ def determine_entry(
     )
 
     breakout = bool(
-        last["breakout"]
+        last.get(
+            "breakout",
+            False
+        )
     )
 
     pullback = bool(
@@ -1070,7 +1147,8 @@ def determine_entry(
 
     if (
         breakout and
-        entry > resistance and
+        np.isfinite(previous_resistance) and
+        entry > previous_resistance and
         volume_ratio >= 1.5
     ):
 
@@ -1109,7 +1187,8 @@ def determine_entry(
         entry > ema20 and
         entry > ema50 and
         last["rsi"] >= 50 and
-        last["macd"] > last["macd_signal"]
+        last["macd"] > last["macd_signal"] and
+        last["Close"] > last["vwap"]
     ):
 
         return {
@@ -1128,14 +1207,16 @@ def determine_entry(
 
 
 # =========================================================
-# 🛡️ RISK ENGINE
+# 🛡️ PROFESSIONAL RISK & TARGET ENGINE
 # =========================================================
 
 def calculate_risk_engine(
     df_d,
     entry,
     capital,
-    risk_percent
+    risk_percent,
+    df_w=None,
+    df_m=None
 ):
 
     last = df_d.iloc[-1]
@@ -1148,20 +1229,195 @@ def calculate_risk_engine(
         last["resistance"]
     )
 
+    previous_resistance = float(
+        last.get(
+            "previous_resistance",
+            np.nan
+        )
+    )
+
     atr_val = float(
         last["atr"]
     )
 
-    if not np.isfinite(atr_val):
+    if (
+        not np.isfinite(atr_val) or
+        atr_val <= 0
+    ):
+
         atr_val = entry * 0.03
 
     # =====================================================
-    # تحديد اتجاه الصفقة
+    # Fibonacci Extensions
+    # =====================================================
+
+    fib_ext_1272 = float(
+        last.get(
+            "fib_ext_1272",
+            np.nan
+        )
+    )
+
+    fib_ext_1618 = float(
+        last.get(
+            "fib_ext_1618",
+            np.nan
+        )
+    )
+
+    fib_ext_2000 = float(
+        last.get(
+            "fib_ext_2000",
+            np.nan
+        )
+    )
+
+    # =====================================================
+    # Daily Resistance
+    # =====================================================
+
+    daily_levels = []
+
+    for level in [
+        previous_resistance,
+        resistance
+    ]:
+
+        if (
+            np.isfinite(level) and
+            level > entry
+        ):
+
+            daily_levels.append(
+                float(level)
+            )
+
+    # =====================================================
+    # Weekly Resistance
+    # =====================================================
+
+    weekly_levels = []
+
+    if (
+        df_w is not None and
+        not df_w.empty
+    ):
+
+        try:
+
+            w_high = (
+                df_w["High"]
+                .rolling(
+                    20,
+                    min_periods=10
+                )
+                .max()
+                .shift(1)
+                .iloc[-1]
+            )
+
+            if (
+                np.isfinite(w_high) and
+                w_high > entry
+            ):
+
+                weekly_levels.append(
+                    float(w_high)
+                )
+
+        except Exception:
+            pass
+
+    # =====================================================
+    # Monthly Resistance
+    # =====================================================
+
+    monthly_levels = []
+
+    if (
+        df_m is not None and
+        not df_m.empty
+    ):
+
+        try:
+
+            m_high = (
+                df_m["High"]
+                .rolling(
+                    12,
+                    min_periods=6
+                )
+                .max()
+                .shift(1)
+                .iloc[-1]
+            )
+
+            if (
+                np.isfinite(m_high) and
+                m_high > entry
+            ):
+
+                monthly_levels.append(
+                    float(m_high)
+                )
+
+        except Exception:
+            pass
+
+    # =====================================================
+    # Fibonacci Extension Levels
+    # =====================================================
+
+    fib_levels = []
+
+    for level in [
+        fib_ext_1272,
+        fib_ext_1618,
+        fib_ext_2000
+    ]:
+
+        if (
+            np.isfinite(level) and
+            level > entry
+        ):
+
+            fib_levels.append(
+                float(level)
+            )
+
+    # =====================================================
+    # اتجاه السهم
     # =====================================================
 
     bullish = (
         last["ema20"] >
         last["ema50"]
+    )
+
+    strong_trend = (
+        last["adx"] >= 25
+    )
+
+    very_strong_trend = (
+        last["adx"] >= 30
+    )
+
+    breakout = bool(
+        last.get(
+            "breakout",
+            False
+        )
+    )
+
+    volume_ratio = float(
+        last.get(
+            "volume_ratio",
+            1.0
+        )
+    )
+
+    strong_volume = (
+        volume_ratio >= 1.5
     )
 
     # =====================================================
@@ -1185,7 +1441,11 @@ def calculate_risk_engine(
                 atr_stop,
                 support_stop
             ]
-            if x > 0 and x < entry
+            if (
+                np.isfinite(x) and
+                x > 0 and
+                x < entry
+            )
         ]
 
         if candidates:
@@ -1223,7 +1483,10 @@ def calculate_risk_engine(
         stop
     )
 
-    if risk_per_share <= 0:
+    if (
+        risk_per_share <= 0 or
+        not np.isfinite(risk_per_share)
+    ):
 
         risk_per_share = (
             entry * 0.03
@@ -1260,56 +1523,393 @@ def calculate_risk_engine(
     )
 
     # =====================================================
+    # Professional Target Engine
+    # =====================================================
+
+    atr_distance = atr_val
+
+    all_levels = []
+
+    all_levels.extend(
+        daily_levels
+    )
+
+    all_levels.extend(
+        weekly_levels
+    )
+
+    all_levels.extend(
+        monthly_levels
+    )
+
+    all_levels.extend(
+        fib_levels
+    )
+
+    # =====================================================
+    # ATR Targets
+    # =====================================================
+
+    atr_target_1 = (
+        entry +
+        atr_distance * 1.5
+    )
+
+    atr_target_2 = (
+        entry +
+        atr_distance * 2.8
+    )
+
+    atr_target_3 = (
+        entry +
+        atr_distance * 4.5
+    )
+
+    atr_target_4 = (
+        entry +
+        atr_distance * 6.5
+    )
+
+    all_levels.extend([
+        atr_target_1,
+        atr_target_2,
+        atr_target_3,
+        atr_target_4
+    ])
+
+    # =====================================================
+    # تنظيف المستويات
+    # =====================================================
+
+    clean_levels = []
+
+    for level in all_levels:
+
+        try:
+
+            level = float(level)
+
+            if (
+                np.isfinite(level) and
+                level > entry
+            ):
+
+                clean_levels.append(
+                    level
+                )
+
+        except Exception:
+            continue
+
+    clean_levels = sorted(
+        set(
+            round(
+                x,
+                6
+            )
+            for x in clean_levels
+        )
+    )
+
+    # =====================================================
+    # Minimum Gap
+    # =====================================================
+
+    min_gap = max(
+        atr_val * 0.55,
+        entry * 0.015
+    )
+
+    # =====================================================
     # TP1
     # =====================================================
 
-    atr_tp1 = (
-        entry +
-        atr_val * 1.0
-    )
-
-    resistance_tp1 = (
-        resistance
-        if resistance > entry
-        else atr_tp1
-    )
-
-    tp1 = min(
-        resistance_tp1,
-        atr_tp1
-    )
-
-    if tp1 <= entry:
-
-        tp1 = (
+    tp1_candidates = [
+        x for x in clean_levels
+        if x >= (
             entry +
-            atr_val
+            atr_val * 1.15
         )
+    ]
+
+    if tp1_candidates:
+
+        tp1 = min(
+            tp1_candidates
+        )
+
+    else:
+
+        tp1 = atr_target_1
 
     # =====================================================
     # TP2
     # =====================================================
 
-    tp2 = (
-        entry +
-        atr_val * 2.0
-    )
+    tp2_candidates = [
+        x for x in clean_levels
+        if x >= (
+            tp1 +
+            min_gap
+        )
+    ]
 
-    if resistance > tp1:
+    if tp2_candidates:
+
+        structural_tp2 = [
+            x for x in tp2_candidates
+            if x in (
+                daily_levels +
+                weekly_levels +
+                monthly_levels +
+                fib_levels
+            )
+        ]
+
+        if structural_tp2:
+
+            tp2 = min(
+                structural_tp2
+            )
+
+        else:
+
+            tp2 = min(
+                tp2_candidates
+            )
+
+    else:
 
         tp2 = max(
-            tp2,
-            resistance
+            tp1 + min_gap,
+            atr_target_2
         )
 
     # =====================================================
     # TP3
     # =====================================================
 
-    tp3 = (
+    tp3_candidates = [
+        x for x in clean_levels
+        if x >= (
+            tp2 +
+            min_gap
+        )
+    ]
+
+    if tp3_candidates:
+
+        structural_tp3 = [
+            x for x in tp3_candidates
+            if x in (
+                weekly_levels +
+                monthly_levels +
+                fib_levels
+            )
+        ]
+
+        if structural_tp3:
+
+            tp3 = min(
+                structural_tp3
+            )
+
+        else:
+
+            tp3 = min(
+                tp3_candidates
+            )
+
+    else:
+
+        tp3 = max(
+            tp2 + min_gap,
+            atr_target_3
+        )
+
+    # =====================================================
+    # TP4
+    # =====================================================
+
+    tp4_candidates = [
+        x for x in clean_levels
+        if x >= (
+            tp3 +
+            min_gap
+        )
+    ]
+
+    if tp4_candidates:
+
+        structural_tp4 = [
+            x for x in tp4_candidates
+            if x in (
+                monthly_levels +
+                fib_levels
+            )
+        ]
+
+        if structural_tp4:
+
+            tp4 = max(
+                structural_tp4
+            )
+
+        else:
+
+            tp4 = max(
+                tp4_candidates
+            )
+
+    else:
+
+        tp4 = max(
+            tp3 + min_gap,
+            atr_target_4
+        )
+
+    # =====================================================
+    # فلتر قوة الاتجاه
+    # =====================================================
+
+    if not strong_trend:
+
+        tp4 = min(
+            tp4,
+            entry +
+            atr_val * 6.0
+        )
+
+    # =====================================================
+    # اتجاه قوي + Breakout + Volume
+    # =====================================================
+
+    if (
+        strong_trend and
+        breakout and
+        strong_volume
+    ):
+
+        tp3 = max(
+            tp3,
+            entry +
+            atr_val * 4.5
+        )
+
+        tp4 = max(
+            tp4,
+            entry +
+            atr_val * 7.0
+        )
+
+    # =====================================================
+    # اتجاه قوي جدًا
+    # =====================================================
+
+    if (
+        very_strong_trend and
+        volume_ratio >= 1.5
+    ):
+
+        tp4 = max(
+            tp4,
+            entry +
+            atr_val * 8.0
+        )
+
+    # =====================================================
+    # FINAL TARGET ORDER VALIDATION
+    # =====================================================
+
+    tp1 = max(
+        tp1,
         entry +
-        atr_val * 3.5
+        atr_val * 1.0
     )
+
+    tp2 = max(
+        tp2,
+        tp1 +
+        min_gap
+    )
+
+    tp3 = max(
+        tp3,
+        tp2 +
+        min_gap
+    )
+
+    tp4 = max(
+        tp4,
+        tp3 +
+        min_gap
+    )
+
+    # =====================================================
+    # منع الأهداف المبالغ فيها
+    # =====================================================
+
+    max_reasonable = (
+        entry +
+        atr_val * 10
+    )
+
+    tp4 = min(
+        tp4,
+        max_reasonable
+    )
+
+    # إعادة ضمان الترتيب
+    tp3 = min(
+        tp3,
+        tp4 - min_gap
+    )
+
+    tp2 = min(
+        tp2,
+        tp3 - min_gap
+    )
+
+    tp1 = min(
+        tp1,
+        tp2 - min_gap
+    )
+
+    # =====================================================
+    # الأرباح %
+    # =====================================================
+
+    tp1_profit_pct = (
+        (
+            tp1 -
+            entry
+        ) /
+        entry
+    ) * 100
+
+    tp2_profit_pct = (
+        (
+            tp2 -
+            entry
+        ) /
+        entry
+    ) * 100
+
+    tp3_profit_pct = (
+        (
+            tp3 -
+            entry
+        ) /
+        entry
+    ) * 100
+
+    tp4_profit_pct = (
+        (
+            tp4 -
+            entry
+        ) /
+        entry
+    ) * 100
 
     # =====================================================
     # Risk / Reward
@@ -1339,6 +1939,14 @@ def calculate_risk_engine(
         1e-9
     )
 
+    rr4 = (
+        tp4 -
+        entry
+    ) / (
+        risk_per_share +
+        1e-9
+    )
+
     return {
 
         "entry": float(entry),
@@ -1351,6 +1959,24 @@ def calculate_risk_engine(
 
         "tp3": float(tp3),
 
+        "tp4": float(tp4),
+
+        "tp1_profit_pct": float(
+            tp1_profit_pct
+        ),
+
+        "tp2_profit_pct": float(
+            tp2_profit_pct
+        ),
+
+        "tp3_profit_pct": float(
+            tp3_profit_pct
+        ),
+
+        "tp4_profit_pct": float(
+            tp4_profit_pct
+        ),
+
         "risk_pct": float(
             risk_pct_actual * 100
         ),
@@ -1360,6 +1986,8 @@ def calculate_risk_engine(
         "rr2": float(rr2),
 
         "rr3": float(rr3),
+
+        "rr4": float(rr4),
 
         "position_size": float(
             position_size
@@ -1384,7 +2012,7 @@ def ai_confidence(
 ):
 
     score = 0
-    total = 10
+    total = 13
 
     # Daily trend
     if last_d["Close"] > last_d["ema200"]:
@@ -1418,6 +2046,32 @@ def ai_confidence(
     if 40 < last_d["mfi"] < 80:
         score += 1
 
+    # OBV
+    if (
+        np.isfinite(last_d["obv"]) and
+        np.isfinite(last_d["obv_ma"]) and
+        last_d["obv"] > last_d["obv_ma"]
+    ):
+
+        score += 1
+
+    # Stochastic RSI
+    if (
+        np.isfinite(last_d["stoch_rsi_k"]) and
+        np.isfinite(last_d["stoch_rsi_d"]) and
+        last_d["stoch_rsi_k"] > last_d["stoch_rsi_d"]
+    ):
+
+        score += 1
+
+    # VWAP
+    if (
+        np.isfinite(last_d["vwap"]) and
+        last_d["Close"] > last_d["vwap"]
+    ):
+
+        score += 1
+
     # Trend Alignment
     if alignment >= 60:
         score += 1
@@ -1430,7 +2084,7 @@ def ai_confidence(
 
 
 # =========================================================
-# 📊 REALISTIC PROBABILITY MODEL
+# 🧠 CONFIDENCE TARGET MODEL
 # =========================================================
 
 def estimate_probabilities(
@@ -1438,12 +2092,10 @@ def estimate_probabilities(
     rr1,
     rr2,
     rr3,
+    rr4,
     alignment,
     adx_val
 ):
-
-    # ده Confidence Model وليس Backtest Probability
-    # يتم إبقاؤه محافظًا ولا يتم تسميته احتمال إحصائي حقيقي
 
     trend_factor = (
         alignment /
@@ -1458,20 +2110,24 @@ def estimate_probabilities(
         )
     )
 
-    tp1 = (
-        base_conf *
-        0.65 +
-        trend_factor *
-        0.20 +
-        momentum_factor *
-        0.15
+    base = (
+        base_conf * 0.60 +
+        trend_factor * 0.25 +
+        momentum_factor * 0.15
     )
 
-    # تحسين حسب R/R
+    # =====================================================
+    # TP1
+    # =====================================================
+
+    tp1 = base
+
     if rr1 >= 2:
+
         tp1 += 0.05
 
-    if rr1 < 1.2:
+    elif rr1 < 1.2:
+
         tp1 -= 0.10
 
     tp1 = min(
@@ -1482,14 +2138,21 @@ def estimate_probabilities(
         )
     )
 
+    # =====================================================
+    # TP2
+    # =====================================================
+
     tp2 = (
-        tp1 *
-        0.78
+        tp1 * 0.82
     )
 
-    if rr2 < 1.5:
+    if rr2 >= 2:
 
-        tp2 *= 0.90
+        tp2 += 0.03
+
+    elif rr2 < 1.5:
+
+        tp2 -= 0.05
 
     tp2 = min(
         0.82,
@@ -1499,27 +2162,59 @@ def estimate_probabilities(
         )
     )
 
+    # =====================================================
+    # TP3
+    # =====================================================
+
     tp3 = (
-        tp2 *
-        0.72
+        tp2 * 0.78
     )
 
-    if rr3 < 2:
+    if rr3 >= 2.5:
 
-        tp3 *= 0.85
+        tp3 += 0.03
+
+    elif rr3 < 2:
+
+        tp3 -= 0.05
 
     tp3 = min(
-        0.72,
+        0.75,
         max(
             0.10,
             tp3
         )
     )
 
+    # =====================================================
+    # TP4
+    # =====================================================
+
+    tp4 = (
+        tp3 * 0.72
+    )
+
+    if rr4 >= 3:
+
+        tp4 += 0.03
+
+    elif rr4 < 2.5:
+
+        tp4 -= 0.05
+
+    tp4 = min(
+        0.68,
+        max(
+            0.08,
+            tp4
+        )
+    )
+
     return (
         tp1,
         tp2,
-        tp3
+        tp3,
+        tp4
     )
 
 
@@ -1596,13 +2291,22 @@ def analyze(
         "rsi",
         "macd",
         "macd_signal",
+        "macd_hist",
         "vol_ma",
         "volume_ratio",
+        "obv",
+        "obv_ma",
+        "obv_slope",
+        "mfi",
+        "stoch_rsi",
+        "stoch_rsi_k",
+        "stoch_rsi_d",
+        "stoch_rsi_k_slope",
+        "vwap",
         "support",
         "resistance",
         "atr",
         "adx",
-        "mfi",
         "ema20_slope",
         "ema50_slope"
     ]
@@ -1698,7 +2402,9 @@ def analyze(
         df_d,
         entry,
         capital,
-        risk_percent
+        risk_percent,
+        df_w,
+        df_m
     )
 
     stop = risk["stop"]
@@ -1706,10 +2412,28 @@ def analyze(
     tp1 = risk["tp1"]
     tp2 = risk["tp2"]
     tp3 = risk["tp3"]
+    tp4 = risk["tp4"]
+
+    tp1_profit_pct = risk[
+        "tp1_profit_pct"
+    ]
+
+    tp2_profit_pct = risk[
+        "tp2_profit_pct"
+    ]
+
+    tp3_profit_pct = risk[
+        "tp3_profit_pct"
+    ]
+
+    tp4_profit_pct = risk[
+        "tp4_profit_pct"
+    ]
 
     rr1 = risk["rr1"]
     rr2 = risk["rr2"]
     rr3 = risk["rr3"]
+    rr4 = risk["rr4"]
 
     volatility = (
         float(last_d["atr"]) /
@@ -1718,21 +2442,36 @@ def analyze(
 
     # =====================================================
     # ⭐ SCORE من 100
+    #
+    # 25 Trend Alignment
+    # 10 RSI
+    # 10 MACD
+    # 10 Volume
+    # 10 ADX
+    # 5 MFI
+    # 5 OBV
+    # 5 Stochastic RSI
+    # 5 VWAP
+    # 5 Trend Slope
+    # 5 Entry Quality
+    # 5 Risk / Reward
+    #
+    # TOTAL = 100
     # =====================================================
 
     score = 0.0
 
     # -----------------------------------------------------
-    # Trend Alignment 30
+    # 1. Trend Alignment = 25
     # -----------------------------------------------------
 
     score += (
         alignment *
-        0.30
+        0.25
     )
 
     # -----------------------------------------------------
-    # RSI 10
+    # 2. RSI = 10
     # -----------------------------------------------------
 
     rsi = float(
@@ -1756,7 +2495,7 @@ def analyze(
         score += 4
 
     # -----------------------------------------------------
-    # MACD 10
+    # 3. MACD = 10
     # -----------------------------------------------------
 
     if (
@@ -1774,7 +2513,7 @@ def analyze(
         score += 6
 
     # -----------------------------------------------------
-    # Volume 10
+    # 4. Volume = 10
     # -----------------------------------------------------
 
     volume_ratio = float(
@@ -1798,7 +2537,7 @@ def analyze(
         score += 3
 
     # -----------------------------------------------------
-    # ADX 10
+    # 5. ADX = 10
     # -----------------------------------------------------
 
     adx_val = float(
@@ -1822,7 +2561,7 @@ def analyze(
         score += 3
 
     # -----------------------------------------------------
-    # MFI 5
+    # 6. MFI = 5
     # -----------------------------------------------------
 
     mfi = float(
@@ -1842,7 +2581,95 @@ def analyze(
         score += 3
 
     # -----------------------------------------------------
-    # Trend Slope 5
+    # 7. OBV = 5
+    # -----------------------------------------------------
+
+    obv = float(
+        last_d["obv"]
+    )
+
+    obv_ma = float(
+        last_d["obv_ma"]
+    )
+
+    obv_slope = float(
+        last_d["obv_slope"]
+    )
+
+    if (
+        obv > obv_ma and
+        obv_slope > 0
+    ):
+
+        score += 5
+
+    elif (
+        obv > obv_ma or
+        obv_slope > 0
+    ):
+
+        score += 3
+
+    elif obv_slope > 0:
+
+        score += 2
+
+    # -----------------------------------------------------
+    # 8. Stochastic RSI = 5
+    # -----------------------------------------------------
+
+    stoch_k = float(
+        last_d["stoch_rsi_k"]
+    )
+
+    stoch_d = float(
+        last_d["stoch_rsi_d"]
+    )
+
+    stoch_slope = float(
+        last_d["stoch_rsi_k_slope"]
+    )
+
+    if (
+        stoch_k > stoch_d and
+        stoch_slope > 0
+    ):
+
+        score += 5
+
+    elif (
+        stoch_k > stoch_d
+    ):
+
+        score += 3
+
+    elif stoch_slope > 0:
+
+        score += 2
+
+    # -----------------------------------------------------
+    # 9. VWAP = 5
+    # -----------------------------------------------------
+
+    vwap = float(
+        last_d["vwap"]
+    )
+
+    if (
+        np.isfinite(vwap) and
+        last_d["Close"] > vwap
+    ):
+
+        if volume_ratio >= 1.1:
+
+            score += 5
+
+        else:
+
+            score += 3
+
+    # -----------------------------------------------------
+    # 10. Trend Slope = 5
     # -----------------------------------------------------
 
     if (
@@ -1859,60 +2686,44 @@ def analyze(
         score += 3
 
     # -----------------------------------------------------
-    # Entry Quality 10
+    # 11. Entry Quality = 5
     # -----------------------------------------------------
 
-    if entry_type == "دخول فوري":
+    if entry_type == "دخول عند Pullback":
 
-        score += 7
-
-    elif entry_type == "دخول عند Pullback":
-
-        score += 10
+        score += 5
 
     elif entry_type == "دخول اختراق":
 
-        score += 9
+        score += 4.5
+
+    elif entry_type == "دخول فوري":
+
+        score += 3.5
 
     else:
 
-        score += 3
+        score += 1
 
     # -----------------------------------------------------
-    # Risk / Reward 10
+    # 12. Risk / Reward = 5
     # -----------------------------------------------------
 
     if rr1 >= 2:
 
-        score += 10
+        score += 5
 
     elif rr1 >= 1.5:
 
-        score += 7
+        score += 4
 
     elif rr1 >= 1.2:
 
-        score += 4
-
-    # -----------------------------------------------------
-    # Data Quality adjustment
-    # -----------------------------------------------------
-
-    if data_quality >= 95:
-
-        score += 5
-
-    elif data_quality >= 90:
-
-        score += 3
-
-    elif data_quality < 75:
-
-        score -= 5
+        score += 2.5
 
     # -----------------------------------------------------
     # الحد النهائي
-    # -----------------------------------------------------
+    # =====================================================
 
     score = min(
         100,
@@ -1935,18 +2746,20 @@ def analyze(
     )
 
     # =====================================================
-    # تقدير احتمالات محافظة
+    # تقدير الثقة المحافظة
     # =====================================================
 
     (
         tp1_prob,
         tp2_prob,
-        tp3_prob
+        tp3_prob,
+        tp4_prob
     ) = estimate_probabilities(
         base_conf,
         rr1,
         rr2,
         rr3,
+        rr4,
         alignment,
         adx_val
     )
@@ -2038,6 +2851,31 @@ def analyze(
             2
         ),
 
+        "الهدف الرابع": round(
+            tp4,
+            2
+        ),
+
+        "ربح الهدف الأول %": round(
+            tp1_profit_pct,
+            2
+        ),
+
+        "ربح الهدف الثاني %": round(
+            tp2_profit_pct,
+            2
+        ),
+
+        "ربح الهدف الثالث %": round(
+            tp3_profit_pct,
+            2
+        ),
+
+        "ربح الهدف الرابع %": round(
+            tp4_profit_pct,
+            2
+        ),
+
         "احتمال الهدف الأول %": round(
             tp1_prob * 100,
             1
@@ -2050,6 +2888,11 @@ def analyze(
 
         "احتمال الهدف الثالث %": round(
             tp3_prob * 100,
+            1
+        ),
+
+        "احتمال الهدف الرابع %": round(
+            tp4_prob * 100,
             1
         ),
 
@@ -2072,7 +2915,6 @@ def analyze(
 
         # =================================================
         # معلومات داخلية للمحرك
-        # لا يتم عرضها في الجداول للحفاظ على شكلها
         # =================================================
 
         "_entry_type": entry_type,
@@ -2107,6 +2949,11 @@ def analyze(
             2
         ),
 
+        "_rr4": round(
+            rr4,
+            2
+        ),
+
         "_position_size": round(
             risk["position_size"],
             2
@@ -2115,6 +2962,31 @@ def analyze(
         "_position_value": round(
             risk["position_value"],
             2
+        ),
+
+        "_obv": round(
+            obv,
+            2
+        ),
+
+        "_obv_ma": round(
+            obv_ma,
+            2
+        ),
+
+        "_stoch_rsi_k": round(
+            stoch_k,
+            4
+        ),
+
+        "_stoch_rsi_d": round(
+            stoch_d,
+            4
+        ),
+
+        "_vwap": round(
+            vwap,
+            4
         )
     }
 
@@ -2480,6 +3352,14 @@ if st.button(
     )
 
     # =====================================================
+    # 📈 الأسهم التي تم تحليلها بنجاح
+    # =====================================================
+
+    df_ok = df_all[
+        df_all["الحالة"] == "✅ تم التحليل"
+    ].copy()
+
+    # =====================================================
     # 📊 التغطية
     # =====================================================
 
@@ -2613,11 +3493,6 @@ if st.button(
     # 📈 الأسهم الناجحة
     # =====================================================
 
-    df_ok = df_all[
-        df_all["الحالة"] ==
-        "✅ تم التحليل"
-    ].copy()
-
     if not df_ok.empty:
 
         # =================================================
@@ -2642,8 +3517,7 @@ if st.button(
         ).copy()
 
         # =================================================
-        # مهم:
-        # نفس أعمدة الجدول القديمة بالضبط
+        # الأعمدة
         # =================================================
 
         preferred_cols = [
@@ -2666,11 +3540,23 @@ if st.button(
 
             "الهدف الثالث",
 
+            "الهدف الرابع",
+
+            "ربح الهدف الأول %",
+
+            "ربح الهدف الثاني %",
+
+            "ربح الهدف الثالث %",
+
+            "ربح الهدف الرابع %",
+
             "احتمال الهدف الأول %",
 
             "احتمال الهدف الثاني %",
 
             "احتمال الهدف الثالث %",
+
+            "احتمال الهدف الرابع %",
 
             "مؤشر RSI",
 
@@ -2772,7 +3658,6 @@ if st.button(
         # =================================================
         # 📊 تفاصيل المحرك الداخلي
         # =================================================
-        # لا تظهر في الجداول الرئيسية للحفاظ على شكلها
 
         with st.expander(
             "🔬 معلومات المحرك المتقدمة"
@@ -2787,8 +3672,14 @@ if st.button(
                 "_rr1",
                 "_rr2",
                 "_rr3",
+                "_rr4",
                 "_position_size",
-                "_position_value"
+                "_position_value",
+                "_obv",
+                "_obv_ma",
+                "_stoch_rsi_k",
+                "_stoch_rsi_d",
+                "_vwap"
             ]
 
             available_internal = [
@@ -2802,6 +3693,7 @@ if st.button(
                 ]
                 .rename(
                     columns={
+
                         "_entry_type":
                             "نوع الدخول",
 
@@ -2823,11 +3715,29 @@ if st.button(
                         "_rr3":
                             "R/R TP3",
 
+                        "_rr4":
+                            "R/R TP4",
+
                         "_position_size":
                             "حجم المركز",
 
                         "_position_value":
-                            "قيمة المركز"
+                            "قيمة المركز",
+
+                        "_obv":
+                            "OBV",
+
+                        "_obv_ma":
+                            "OBV MA",
+
+                        "_stoch_rsi_k":
+                            "Stoch RSI K",
+
+                        "_stoch_rsi_d":
+                            "Stoch RSI D",
+
+                        "_vwap":
+                            "VWAP"
                     }
                 )
             )
@@ -2850,6 +3760,7 @@ if st.button(
                 stats_df
                 .rename(
                     columns={
+
                         "symbol":
                             "السهم",
 
@@ -2883,9 +3794,9 @@ if st.button(
                 hide_index=True
             )
 
-        # =================================================
-        # ⚠️ الأسهم الفاشلة
-        # =================================================
+    # =====================================================
+    # ⚠️ الأسهم الفاشلة
+    # =====================================================
 
     df_failed = df_all[
         df_all["الحالة"] !=
